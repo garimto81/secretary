@@ -18,7 +18,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -136,8 +136,8 @@ def days_since(date_str: str) -> int:
 
 def analyze_activity(token: str, days: int = 5) -> dict:
     """GitHub 활동 분석"""
-    since = (datetime.utcnow() - timedelta(days=days)).isoformat() + "Z"
-    since_date = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+    since_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
 
     # 레포지토리 목록 조회
     print("📦 레포지토리 목록 조회 중...")

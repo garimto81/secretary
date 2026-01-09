@@ -18,7 +18,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -82,8 +82,8 @@ def get_events(service, start_time: datetime, end_time: datetime) -> list:
     try:
         events_result = service.events().list(
             calendarId="primary",
-            timeMin=start_time.isoformat() + "Z",
-            timeMax=end_time.isoformat() + "Z",
+            timeMin=start_time.isoformat().replace("+00:00", "Z"),
+            timeMax=end_time.isoformat().replace("+00:00", "Z"),
             singleEvents=True,
             orderBy="startTime"
         ).execute()
@@ -223,7 +223,7 @@ def main():
     service = build("calendar", "v3", credentials=creds)
 
     # 시간 범위 설정
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     start_time = now
 
     if args.today:
