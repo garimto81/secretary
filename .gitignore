@@ -5,3 +5,19 @@ __pycache__/
 .env
 .venv/
 *.log
+
+# 개인 정보 보호 (Privacy)
+output/
+config/
+*.json
+!package.json
+!tsconfig.json
+
+# OAuth 토큰 (절대 커밋 금지)
+token_*.json
+*_credentials.json
+
+# 개인 일정/세무 정보
+*-todo-*.md
+*-schedule-*.md
+*-tax-*.md

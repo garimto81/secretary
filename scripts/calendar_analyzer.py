@@ -24,7 +24,7 @@ from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Google API imports
 try:
@@ -34,7 +34,9 @@ try:
     from googleapiclient.discovery import build
 except ImportError:
     print("Error: Google API 라이브러리가 설치되지 않았습니다.")
-    print("설치: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib")
+    print(
+        "설치: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib"
+    )
     sys.exit(1)
 
 # 인증 파일 경로 (google-workspace Skill과 동일)
@@ -61,7 +63,9 @@ def get_credentials() -> Credentials:
         else:
             if not CREDENTIALS_FILE.exists():
                 print(f"Error: OAuth 자격증명 파일이 없습니다: {CREDENTIALS_FILE}")
-                print("Google Cloud Console에서 OAuth 클라이언트 ID를 생성하고 다운로드하세요.")
+                print(
+                    "Google Cloud Console에서 OAuth 클라이언트 ID를 생성하고 다운로드하세요."
+                )
                 sys.exit(1)
 
             flow = InstalledAppFlow.from_client_secrets_file(
@@ -80,13 +84,17 @@ def get_credentials() -> Credentials:
 def get_events(service, start_time: datetime, end_time: datetime) -> list:
     """일정 조회"""
     try:
-        events_result = service.events().list(
-            calendarId="primary",
-            timeMin=start_time.isoformat().replace("+00:00", "Z"),
-            timeMax=end_time.isoformat().replace("+00:00", "Z"),
-            singleEvents=True,
-            orderBy="startTime"
-        ).execute()
+        events_result = (
+            service.events()
+            .list(
+                calendarId="primary",
+                timeMin=start_time.isoformat().replace("+00:00", "Z"),
+                timeMax=end_time.isoformat().replace("+00:00", "Z"),
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
 
         return events_result.get("items", [])
 
@@ -137,9 +145,21 @@ def parse_event(event: dict) -> dict:
     # 준비 필요 여부 판단
     needs_preparation = False
     summary = event.get("summary", "").lower()
-    description = event.get("description", "").lower() if event.get("description") else ""
+    description = (
+        event.get("description", "").lower() if event.get("description") else ""
+    )
 
-    prep_keywords = ["발표", "presentation", "review", "데모", "demo", "미팅", "meeting", "면접", "interview"]
+    prep_keywords = [
+        "발표",
+        "presentation",
+        "review",
+        "데모",
+        "demo",
+        "미팅",
+        "meeting",
+        "면접",
+        "interview",
+    ]
     if any(kw in summary or kw in description for kw in prep_keywords):
         needs_preparation = True
 
@@ -155,7 +175,9 @@ def parse_event(event: dict) -> dict:
         "attendee_count": attendee_count,
         "response_status": response_status,
         "needs_preparation": needs_preparation,
-        "description": event.get("description", "")[:200] if event.get("description") else "",
+        "description": (
+            event.get("description", "")[:200] if event.get("description") else ""
+        ),
     }
 
 

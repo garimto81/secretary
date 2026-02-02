@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life Secretary - CLI Interface</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e1e;
+            padding: 40px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            color: #fff;
+            margin-bottom: 30px;
+            font-size: 24px;
+        }
+        .terminal {
+            background: #0c0c0c;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        .terminal-header {
+            background: #323232;
+            padding: 10px 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .dot-red { background: #ff5f56; }
+        .dot-yellow { background: #ffbd2e; }
+        .dot-green { background: #27c93f; }
+        .terminal-title {
+            color: #999;
+            font-size: 13px;
+            margin-left: 10px;
+        }
+        .terminal-body {
+            padding: 20px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #d4d4d4;
+        }
+        .prompt { color: #6a9955; }
+        .command { color: #dcdcaa; }
+        .header { color: #4fc1ff; font-weight: bold; }
+        .section { color: #ce9178; }
+        .urgent { color: #f14c4c; }
+        .warning { color: #cca700; }
+        .info { color: #3794ff; }
+        .success { color: #89d185; }
+        .dim { color: #6a6a6a; }
+        .line { margin: 2px 0; }
+        .separator { color: #4a4a4a; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Life Secretary - CLI Interface</h1>
+        <div class="terminal">
+            <div class="terminal-header">
+                <div class="terminal-dot dot-red"></div>
+                <div class="terminal-dot dot-yellow"></div>
+                <div class="terminal-dot dot-green"></div>
+                <span class="terminal-title">PowerShell - secretary</span>
+            </div>
+            <div class="terminal-body">
+                <div class="line"><span class="prompt">PS C:\claude\secretary&gt;</span> <span class="command">python scripts/daily_report.py --all</span></div>
+                <div class="line separator">========================================</div>
+                <div class="line"><span class="header">📊 일일 업무 현황 리포트 생성</span></div>
+                <div class="line separator">========================================</div>
+                <div class="line"><span class="info">📧 Gmail 분석 중...</span></div>
+                <div class="line"><span class="info">📅 Calendar 분석 중...</span></div>
+                <div class="line"><span class="info">💻 GitHub 분석 중...</span></div>
+                <div class="line"><span class="info">💬 Slack 분석 중...</span></div>
+                <div class="line"><span class="info">🤖 LLM 분석 중...</span></div>
+                <div class="line">&nbsp;</div>
+                <div class="line separator">========================================</div>
+                <div class="line"><span class="header">📊 일일 업무 현황 (2026-02-02 (Sun))</span></div>
+                <div class="line separator">========================================</div>
+                <div class="line">&nbsp;</div>
+                <div class="line"><span class="section">📧 이메일 할일 (3건)</span></div>
+                <div class="line">├── <span class="urgent">[긴급]</span> 프로젝트 검토 요청 - 마감 2/3</div>
+                <div class="line"><span class="dim">│       발신: client@company.com</span></div>
+                <div class="line">├── <span class="warning">[보통]</span> 주간 회의 안건 공유</div>
+                <div class="line"><span class="dim">│       발신: team@company.com</span></div>
+                <div class="line">&nbsp;</div>
+                <div class="line"><span class="section">🚨 Slack 긴급 메시지 (2건)</span></div>
+                <div class="line">├── [general] @you 긴급 확인 부탁드립니다 - 2시간 전</div>
+                <div class="line">├── [dev] PR 리뷰 요청 #123 - 24시간 전</div>
+                <div class="line">&nbsp;</div>
+                <div class="line"><span class="section">📅 오늘 일정 (2건)</span></div>
+                <div class="line">├── 14:00 팀 미팅 (온라인)</div>
+                <div class="line">├── 16:00 1:1 미팅</div>
+                <div class="line">&nbsp;</div>
+                <div class="line"><span class="section">🤖 LLM 세션 (최근 7일)</span></div>
+                <div class="line">├── 총 세션: 45개</div>
+                <div class="line">├── 주요 프로젝트: secretary (12개)</div>
+                <div class="line">&nbsp;</div>
+                <div class="line separator">========================================</div>
+                <div class="line"><span class="header">📈 요약</span></div>
+                <div class="line">├── 이메일 할일: 3건</div>
+                <div class="line">├── Slack 멘션: 5건</div>
+                <div class="line">├── 오늘 일정: 2건</div>
+                <div class="line">└── GitHub 주의: 2건</div>
+                <div class="line">&nbsp;</div>
+                <div class="line"><span class="urgent">⚡ 긴급 처리 필요: 4건</span></div>
+                <div class="line separator">========================================</div>
+                <div class="line">&nbsp;</div>
+                <div class="line"><span class="prompt">PS C:\claude\secretary&gt;</span> <span class="dim">_</span></div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -6,3 +6,22 @@ google-auth-oauthlib>=1.1.0
 
 # HTTP Client (GitHub API)
 httpx>=0.25.0
+
+# WebSocket (Android Notification)
+websockets>=12.0
+
+# Automation Actions
+winotify>=1.1.0  # Windows Toast notifications
+anthropic>=0.18.0  # Claude API for response drafting
+
+# MS To Do Integration (Phase 5)
+msal>=1.24.0  # Microsoft Authentication Library
+
+# Life Event Management (Phase 5)
+korean-lunar-calendar>=0.3.1  # Lunar/Solar calendar conversion
+
+# Gateway Storage (Phase 4)
+aiosqlite>=0.19.0  # Async SQLite for message storage
+
+# Telegram Bot (Phase 4.2)
+python-telegram-bot>=21.0  # Telegram Bot API adapter

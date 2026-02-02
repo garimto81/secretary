@@ -24,7 +24,7 @@ from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 try:
     import httpx
@@ -94,22 +94,26 @@ def get_user_repos(token: str, sort: str = "pushed", per_page: int = 30) -> list
     return repos if repos else []
 
 
-def get_repo_commits(token: str, owner: str, repo: str, since: str, per_page: int = 50) -> list:
+def get_repo_commits(
+    token: str, owner: str, repo: str, since: str, per_page: int = 50
+) -> list:
     """레포지토리 커밋 목록"""
     commits = api_get(
         f"/repos/{owner}/{repo}/commits",
         token,
-        params={"since": since, "per_page": per_page}
+        params={"since": since, "per_page": per_page},
     )
     return commits if commits else []
 
 
-def get_repo_issues(token: str, owner: str, repo: str, since: str, state: str = "all") -> list:
+def get_repo_issues(
+    token: str, owner: str, repo: str, since: str, state: str = "all"
+) -> list:
     """레포지토리 이슈 목록"""
     issues = api_get(
         f"/repos/{owner}/{repo}/issues",
         token,
-        params={"since": since, "state": state, "per_page": 50}
+        params={"since": since, "state": state, "per_page": 50},
     )
     return issues if issues else []
 
@@ -117,9 +121,7 @@ def get_repo_issues(token: str, owner: str, repo: str, since: str, state: str = 
 def get_repo_prs(token: str, owner: str, repo: str, state: str = "open") -> list:
     """레포지토리 PR 목록"""
     prs = api_get(
-        f"/repos/{owner}/{repo}/pulls",
-        token,
-        params={"state": state, "per_page": 30}
+        f"/repos/{owner}/{repo}/pulls", token, params={"state": state, "per_page": 30}
     )
     return prs if prs else []
 
@@ -136,8 +138,14 @@ def days_since(date_str: str) -> int:
 
 def analyze_activity(token: str, days: int = 5) -> dict:
     """GitHub 활동 분석"""
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
-    since_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    since = (
+        (datetime.now(timezone.utc) - timedelta(days=days))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    since_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
+        "%Y-%m-%d"
+    )
 
     # 레포지토리 목록 조회
     print("📦 레포지토리 목록 조회 중...")
@@ -147,13 +155,13 @@ def analyze_activity(token: str, days: int = 5) -> dict:
         return {
             "active_repos": [],
             "attention_needed": [],
-            "summary": {"total_commits": 0, "total_issues": 0, "total_prs": 0}
+            "summary": {"total_commits": 0, "total_issues": 0, "total_prs": 0},
         }
 
     result = {
         "active_repos": [],
         "attention_needed": [],
-        "summary": {"total_commits": 0, "total_issues": 0, "total_prs": 0}
+        "summary": {"total_commits": 0, "total_issues": 0, "total_prs": 0},
     }
 
     # 최근 푸시가 있는 레포만 분석
@@ -188,14 +196,16 @@ def analyze_activity(token: str, days: int = 5) -> dict:
 
         # 활성 레포 기록
         if commit_count > 0 or issue_count > 0 or pr_count > 0:
-            result["active_repos"].append({
-                "name": name,
-                "full_name": full_name,
-                "commits": commit_count,
-                "issues": issue_count,
-                "prs": pr_count,
-                "pushed_at": pushed_at,
-            })
+            result["active_repos"].append(
+                {
+                    "name": name,
+                    "full_name": full_name,
+                    "commits": commit_count,
+                    "issues": issue_count,
+                    "prs": pr_count,
+                    "pushed_at": pushed_at,
+                }
+            )
 
         # 주의 필요 항목 분석
         for pr in prs:
@@ -204,15 +214,17 @@ def analyze_activity(token: str, days: int = 5) -> dict:
 
             # PR 리뷰 대기 3일 이상
             if pr_days >= 3:
-                result["attention_needed"].append({
-                    "type": "pr",
-                    "repo": name,
-                    "title": pr.get("title", ""),
-                    "number": pr.get("number", 0),
-                    "days": pr_days,
-                    "reason": f"리뷰 대기 {pr_days}일",
-                    "url": pr.get("html_url", ""),
-                })
+                result["attention_needed"].append(
+                    {
+                        "type": "pr",
+                        "repo": name,
+                        "title": pr.get("title", ""),
+                        "number": pr.get("number", 0),
+                        "days": pr_days,
+                        "reason": f"리뷰 대기 {pr_days}일",
+                        "url": pr.get("html_url", ""),
+                    }
+                )
 
         for issue in pure_issues:
             updated_at = issue.get("updated_at", "")
@@ -220,15 +232,17 @@ def analyze_activity(token: str, days: int = 5) -> dict:
 
             # 이슈 응답 없음 4일 이상
             if issue_days >= 4 and issue.get("state") == "open":
-                result["attention_needed"].append({
-                    "type": "issue",
-                    "repo": name,
-                    "title": issue.get("title", ""),
-                    "number": issue.get("number", 0),
-                    "days": issue_days,
-                    "reason": f"응답 없음 {issue_days}일",
-                    "url": issue.get("html_url", ""),
-                })
+                result["attention_needed"].append(
+                    {
+                        "type": "issue",
+                        "repo": name,
+                        "title": issue.get("title", ""),
+                        "number": issue.get("number", 0),
+                        "days": issue_days,
+                        "reason": f"응답 없음 {issue_days}일",
+                        "url": issue.get("html_url", ""),
+                    }
+                )
 
         # 통계 업데이트
         result["summary"]["total_commits"] += commit_count
@@ -251,7 +265,9 @@ def format_output(data: dict, days: int = 5) -> str:
         output.append("")
         output.append(f"🔥 활발한 프로젝트 ({len(active_repos)}개)")
         for repo in active_repos[:10]:  # 최대 10개
-            output.append(f"├── {repo['full_name']}: {repo['commits']} commits, {repo['issues']} issues, {repo['prs']} PRs")
+            output.append(
+                f"├── {repo['full_name']}: {repo['commits']} commits, {repo['issues']} issues, {repo['prs']} PRs"
+            )
 
     # 주의 필요
     attention = data.get("attention_needed", [])
@@ -260,7 +276,9 @@ def format_output(data: dict, days: int = 5) -> str:
         output.append(f"⚠️ 주의 필요 ({len(attention)}건)")
         for item in attention:
             icon = "🔀" if item["type"] == "pr" else "🐛"
-            output.append(f"├── {icon} #{item['number']} ({item['repo']}): {item['reason']}")
+            output.append(
+                f"├── {icon} #{item['number']} ({item['repo']}): {item['reason']}"
+            )
             output.append(f"│   {item['title'][:50]}")
 
     # 요약
