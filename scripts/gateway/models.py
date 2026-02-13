@@ -136,6 +136,7 @@ class OutboundMessage:
     channel: ChannelType
     to: str
     text: str
+    subject: Optional[str] = None
     draft_file: Optional[str] = None
     confirmed: bool = False
     sent_at: Optional[datetime] = None
@@ -157,6 +158,7 @@ class OutboundMessage:
             "channel": self.channel.value,
             "to": self.to,
             "text": self.text,
+            "subject": self.subject,
             "draft_file": self.draft_file,
             "confirmed": self.confirmed,
             "sent_at": self.sent_at.isoformat() if self.sent_at else None,

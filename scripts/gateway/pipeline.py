@@ -116,6 +116,16 @@ class MessagePipeline:
             re.compile(p, re.IGNORECASE) for p in self.config["deadline_patterns"]
         ]
 
+        # Action Dispatcher 초기화
+        try:
+            from scripts.gateway.action_dispatcher import ActionDispatcher
+        except ImportError:
+            try:
+                from gateway.action_dispatcher import ActionDispatcher
+            except ImportError:
+                from .action_dispatcher import ActionDispatcher
+        self._dispatcher = ActionDispatcher()
+
     def add_handler(self, handler: PipelineHandler) -> None:
         """
         커스텀 핸들러 추가
@@ -296,20 +306,22 @@ class MessagePipeline:
 
     async def _dispatch_actions(self, message: NormalizedMessage, result: PipelineResult) -> None:
         """
-        액션 디스패치
+        액션 디스패치 - ActionDispatcher를 통해 TODO/Calendar 처리
 
         Args:
             message: 메시지
             result: 파이프라인 결과
         """
-        # 현재는 액션 기록만 수행
-        # 추후 TODO 생성, Calendar 일정 생성 등 확장 가능
-
-        # TODO 생성이 필요한 경우 로그만 남김
-        for action in result.actions:
-            if action.startswith("deadline:") or action.startswith("action_request:"):
-                # TODO: todo_generator 연동
-                pass
+        try:
+            dispatch_results = await self._dispatcher.dispatch(message, result.actions)
+            for dr in dispatch_results:
+                if dr.success and dr.output_path:
+                    print(f"[Pipeline] Action dispatched: {dr.action} -> {dr.output_path}")
+                elif not dr.success and dr.error:
+                    print(f"[Pipeline] Action failed: {dr.action} - {dr.error}")
+        except Exception as e:
+            # dispatch 실패는 pipeline을 중단하지 않음
+            print(f"[Pipeline] Dispatch error: {e}")
 
     def _check_rate_limit(self) -> bool:
         """

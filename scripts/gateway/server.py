@@ -226,18 +226,93 @@ class SecretaryGateway:
         """설정된 어댑터 연결"""
         channels_config = self.config.get("channels", {})
 
+        # 자동 어댑터 생성 (Slack, Gmail)
         for channel_name, channel_config in channels_config.items():
             if not channel_config.get("enabled", False):
                 continue
 
-            # 어댑터가 이미 추가되어 있으면 연결
-            if channel_name in self.adapters:
-                adapter = self.adapters[channel_name]
-                success = await adapter.connect()
-                if success:
-                    print(f"  - {channel_name} 어댑터 연결 성공")
-                else:
-                    print(f"  - {channel_name} 어댑터 연결 실패")
+            if channel_name not in self.adapters:
+                adapter = self._create_adapter(channel_name, channel_config)
+                if adapter:
+                    self.adapters[channel_name] = adapter
+
+        # 어댑터 연결
+        for channel_name in list(self.adapters.keys()):
+            channel_config = channels_config.get(channel_name, {})
+            if not channel_config.get("enabled", False):
+                continue
+
+            adapter = self.adapters[channel_name]
+            success = await adapter.connect()
+            if success:
+                print(f"  - {channel_name} 어댑터 연결 성공")
+            else:
+                print(f"  - {channel_name} 어댑터 연결 실패")
+
+        # Intelligence 핸들러 등록
+        await self._register_intelligence_handler()
+
+    def _create_adapter(self, channel_name: str, config: dict):
+        """채널 이름으로 어댑터 자동 생성"""
+        try:
+            if channel_name == "slack":
+                from scripts.gateway.adapters.slack import SlackAdapter
+                return SlackAdapter(config)
+            elif channel_name in ("gmail", "email"):
+                from scripts.gateway.adapters.gmail import GmailAdapter
+                return GmailAdapter(config)
+        except ImportError:
+            try:
+                if channel_name == "slack":
+                    from gateway.adapters.slack import SlackAdapter
+                    return SlackAdapter(config)
+                elif channel_name in ("gmail", "email"):
+                    from gateway.adapters.gmail import GmailAdapter
+                    return GmailAdapter(config)
+            except ImportError:
+                pass
+        except Exception as e:
+            print(f"  - {channel_name} 어댑터 생성 실패: {e}")
+        return None
+
+    async def _register_intelligence_handler(self) -> None:
+        """Project Intelligence 핸들러를 파이프라인에 등록"""
+        if not self.pipeline:
+            return
+
+        intel_config = self.config.get("intelligence", {})
+        if not intel_config.get("enabled", True):
+            return
+
+        try:
+            from scripts.intelligence.context_store import IntelligenceStorage
+            from scripts.intelligence.project_registry import ProjectRegistry
+            from scripts.intelligence.response.handler import ProjectIntelligenceHandler
+
+            intel_storage = IntelligenceStorage()
+            await intel_storage.connect()
+
+            registry = ProjectRegistry(intel_storage)
+            await registry.load_from_config()
+
+            ollama_config = intel_config.get("ollama")
+            claude_config = intel_config.get("claude_draft")
+
+            handler = ProjectIntelligenceHandler(
+                storage=intel_storage,
+                registry=registry,
+                ollama_config=ollama_config,
+                claude_config=claude_config,
+            )
+
+            self.pipeline.add_handler(handler.handle)
+            tier1 = "ollama" if ollama_config and ollama_config.get("enabled") else "규칙만"
+            tier2 = "claude-opus" if claude_config and claude_config.get("enabled") else "수동"
+            print(f"  - Intelligence 핸들러 등록 완료 (분석: {tier1}, 작성: {tier2})")
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"  - Intelligence 핸들러 등록 실패: {e}")
 
     async def _message_loop(self) -> None:
         """메시지 수신 루프"""
@@ -339,11 +414,99 @@ class SecretaryGateway:
         return None
 
 
+def interactive_slack_channel_select(config_path: Path) -> list:
+    """Slack 채널을 대화형으로 선택하고 gateway.json에 저장"""
+    try:
+        from lib.slack import SlackClient
+        client = SlackClient()
+        if not client.validate_token():
+            print("[Slack] 토큰 검증 실패. 'python -m lib.slack login'을 실행하세요.")
+            return []
+
+        channels = client.list_channels(include_private=True)
+        member_channels = [ch for ch in channels if ch.is_member]
+        if not member_channels:
+            print("[Slack] bot이 참여한 채널이 없습니다.")
+            return []
+
+        print("\n=== Slack 채널 선택 ===")
+        print("bot이 참여한 채널 목록:\n")
+        for i, ch in enumerate(member_channels, 1):
+            private_tag = " [비공개]" if ch.is_private else ""
+            topic_tag = f" - {ch.topic}" if ch.topic else ""
+            print(f"  {i:3d}. #{ch.name}{private_tag}{topic_tag}")
+        print(f"\n  0. 전체 선택 ({len(member_channels)}개)\n")
+
+        while True:
+            try:
+                raw = input("감시할 채널 번호를 입력하세요 (쉼표 구분, 0=전체): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n[Slack] 채널 선택이 취소되었습니다.")
+                return []
+            if not raw:
+                continue
+            if raw == "0":
+                selected = member_channels
+                break
+            try:
+                indices = [int(x.strip()) for x in raw.split(",")]
+                selected = []
+                invalid = False
+                for idx in indices:
+                    if 1 <= idx <= len(member_channels):
+                        selected.append(member_channels[idx - 1])
+                    else:
+                        print(f"  잘못된 번호: {idx} (1-{len(member_channels)} 범위)")
+                        invalid = True
+                if invalid:
+                    continue
+                if selected:
+                    break
+                print("  최소 1개 채널을 선택하세요.")
+            except ValueError:
+                print("  숫자만 입력하세요. (예: 1,3,5)")
+
+        selected_ids = [ch.id for ch in selected]
+        selected_names = [f"#{ch.name}" for ch in selected]
+        print(f"\n선택됨: {', '.join(selected_names)}")
+        _save_slack_channels(config_path, selected_ids)
+        return selected_ids
+    except Exception as e:
+        print(f"[Slack] 채널 선택 중 오류 발생: {e}")
+        print("[Slack] gateway.json에 channels를 직접 설정하세요.")
+        return []
+
+
+def _save_slack_channels(config_path: Path, channel_ids: list) -> None:
+    """선택된 Slack 채널을 gateway.json에 저장"""
+    config = load_config(config_path)
+    config.setdefault("channels", {}).setdefault("slack", {})["channels"] = channel_ids
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+    print(f"[Slack] {len(channel_ids)}개 채널이 {config_path}에 저장됨")
+
+
 # CLI 명령 핸들러
 async def cmd_start(args: argparse.Namespace) -> None:
     """start 명령 처리"""
-    config_path = Path(args.config) if args.config else None
+    config_path = Path(args.config) if args.config else DEFAULT_CONFIG_PATH
+    config = load_config(config_path)
+
+    # Slack 대화형 채널 선택 (서버 시작 전, 동기 처리)
+    slack_config = config.get("channels", {}).get("slack", {})
+    if slack_config.get("enabled", False) and not slack_config.get("channels"):
+        if sys.stdin.isatty():
+            selected = interactive_slack_channel_select(config_path)
+            if selected:
+                config["channels"]["slack"]["channels"] = selected
+        else:
+            print("[Slack] 비대화형 환경입니다. gateway.json에 channels를 직접 설정하세요.")
+
     gateway = SecretaryGateway(config_path)
+
+    # 대화형 선택으로 변경된 config 반영
+    if config.get("channels", {}).get("slack", {}).get("channels"):
+        gateway.config = config
 
     # 포트 오버라이드
     if args.port:

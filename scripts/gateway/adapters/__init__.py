@@ -6,6 +6,8 @@ Channel Adapters
 
 from .base import ChannelAdapter, SendResult, AdapterConfig
 from .telegram import TelegramAdapter, MockTelegramAdapter
+from .slack import SlackAdapter
+from .gmail import GmailAdapter
 
 __all__ = [
     "ChannelAdapter",
@@ -13,4 +15,6 @@ __all__ = [
     "AdapterConfig",
     "TelegramAdapter",
     "MockTelegramAdapter",
+    "SlackAdapter",
+    "GmailAdapter",
 ]
