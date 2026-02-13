@@ -21,6 +21,7 @@ MessagePipeline에 등록되어 수신 메시지를 처리합니다.
 """
 
 from typing import Optional, Dict, Any
+from collections import OrderedDict
 
 from .context_matcher import ContextMatcher
 from .draft_store import DraftStore
@@ -35,7 +36,7 @@ class DedupFilter:
 
     def __init__(self, storage: IntelligenceStorage):
         self.storage = storage
-        self._recent_ids: set = set()
+        self._recent_ids: OrderedDict = OrderedDict()
         self._max_cache = 1000
 
     async def is_duplicate(self, source_channel: str, source_message_id: str) -> bool:
@@ -57,7 +58,7 @@ class DedupFilter:
         # DB 체크
         existing = await self.storage.find_by_message_id(source_channel, source_message_id)
         if existing:
-            self._recent_ids.add(key)
+            self._recent_ids[key] = True
             return True
 
         return False
@@ -65,11 +66,11 @@ class DedupFilter:
     def mark_processed(self, source_channel: str, source_message_id: str):
         """처리 완료 마킹 (메모리 캐시에만)"""
         key = f"{source_channel}:{source_message_id}"
-        self._recent_ids.add(key)
+        self._recent_ids[key] = True
 
-        # 캐시 크기 제한 (최근 500개만 유지)
-        if len(self._recent_ids) > self._max_cache:
-            self._recent_ids = set(list(self._recent_ids)[-500:])
+        # 캐시 크기 제한 (가장 오래된 항목부터 제거)
+        while len(self._recent_ids) > self._max_cache:
+            self._recent_ids.popitem(last=False)
 
 
 class ProjectIntelligenceHandler:
@@ -147,23 +148,25 @@ class ProjectIntelligenceHandler:
         # Step 3: Ollama 분석 (모든 메시지)
         analysis = await self._analyze_message(message, source_channel, rule_hint)
 
-        # Step 4: 분석 결과 DB 저장 + 중복 마킹
-        self.dedup.mark_processed(source_channel, message.id)
-
-        # Step 5: project_id 해석 (Ollama 우선, 규칙 기반 fallback)
+        # Step 4: project_id 해석 (Ollama 우선, 규칙 기반 fallback)
         project_id = self._resolve_project(analysis, rule_match)
 
-        # Step 6: project_id 없으면 pending_match로 저장 후 종료
+        # Step 5: project_id 없으면 pending_match로 저장 후 종료
         if not project_id:
             await self._save_pending_match(message, source_channel, analysis)
+            self.dedup.mark_processed(source_channel, message.id)
             return
 
-        # Step 7: needs_response=false면 종료 (분석만 완료)
+        # Step 6: needs_response=false면 종료 (분석만 완료)
         if not analysis.needs_response:
+            self.dedup.mark_processed(source_channel, message.id)
             return
 
-        # Step 8: Claude Opus로 초안 작성 (needs_response=true일 때만)
+        # Step 7: Claude Opus로 초안 작성 (needs_response=true일 때만)
         await self._generate_draft(message, source_channel, project_id, analysis, rule_match)
+
+        # Step 8: 처리 완료 마킹
+        self.dedup.mark_processed(source_channel, message.id)
 
     async def _analyze_message(
         self,
@@ -174,11 +177,12 @@ class ProjectIntelligenceHandler:
         """
         Ollama로 메시지 분석 (Tier 1)
 
-        Ollama 불가 시 기본값 반환 (needs_response=True로 설정하여 항상 초안 생성 시도)
+        Ollama 불가 시 기본값 반환 (needs_response=False로 설정하여 비용 폭주 방지)
         """
         if not self._analyzer:
+            print("[Intelligence] WARNING: Ollama 비활성화됨 - 분석 건너뜀")
             return AnalysisResult(
-                needs_response=True,
+                needs_response=False,
                 project_id=None,
                 confidence=0.0,
                 reasoning="Ollama 비활성화됨",
@@ -195,9 +199,9 @@ class ProjectIntelligenceHandler:
                 rule_hint=rule_hint,
             )
         except Exception as e:
-            print(f"[Intelligence] Ollama 분석 실패: {e}")
+            print(f"[Intelligence] WARNING: Ollama 분석 실패 - 분석 건너뜀: {e}")
             return AnalysisResult(
-                needs_response=True,
+                needs_response=False,
                 project_id=None,
                 confidence=0.0,
                 reasoning=f"분석 실패: {str(e)}",
@@ -338,8 +342,8 @@ class ProjectIntelligenceHandler:
         if analysis.project_id and analysis.confidence >= 0.7:
             return analysis.project_id
 
-        # 규칙 기반 매칭 성공
-        if rule_match.matched:
+        # 규칙 기반 매칭 성공 (confidence >= 0.6 이상만)
+        if rule_match.matched and rule_match.confidence >= 0.6:
             return rule_match.project_id
 
         # Ollama가 낮은 신뢰도로라도 project_id 제시

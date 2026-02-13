@@ -4,7 +4,7 @@ ContextMatcher - 3-tier 메시지-프로젝트 매칭
 Tier 1: Channel Match (confidence 0.9)
   Slack 채널 ID가 프로젝트의 slack_channels에 포함 → 즉시 매칭
 
-Tier 2: Keyword Match (confidence 0.7)
+Tier 2: Keyword Match (confidence 0.6~0.8)
   메시지 텍스트에 프로젝트명, 키워드 포함 → 매칭
 
 Tier 3: Sender Match (confidence 0.5)

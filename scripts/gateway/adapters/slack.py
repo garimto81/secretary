@@ -12,6 +12,7 @@ Features:
 
 import asyncio
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -179,7 +180,7 @@ class SlackAdapter(ChannelAdapter):
                 message_type=MessageType.TEXT,
                 timestamp=msg.timestamp or datetime.now(),
                 is_group=True,
-                is_mention="<@" in (msg.text or ""),
+                is_mention=bool(re.search(r'<@U[A-Z0-9]+>', msg.text or "")),
                 reply_to_id=msg.thread_ts if msg.thread_ts != msg.ts else None,
                 raw_json=json.dumps({"ts": msg.ts, "channel": channel_id}),
             ))

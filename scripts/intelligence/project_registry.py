@@ -6,6 +6,7 @@ IntelligenceStorage와 연동하여 CRUD 제공.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -13,6 +14,15 @@ from .context_store import IntelligenceStorage
 
 
 DEFAULT_CONFIG_PATH = Path(r"C:\claude\secretary\config\projects.json")
+
+
+def _word_boundary_match(term: str, text: str) -> bool:
+    """단어 경계 매칭 (한국어/영어 혼합 지원)"""
+    pattern = re.compile(
+        rf'(?:^|[\s,.\-!?;:()\"\'·]){re.escape(term.lower())}(?:[\s,.\-!?;:()\"\'·]|$)',
+        re.IGNORECASE
+    )
+    return bool(pattern.search(text))
 
 
 class ProjectRegistry:
@@ -78,13 +88,13 @@ class ProjectRegistry:
             name = project.get("name", "").lower()
             project_id = project.get("id", "").lower()
 
-            if project_id in text_lower:
+            if _word_boundary_match(project_id, text_lower):
                 score += 1
-            if name in text_lower:
+            if _word_boundary_match(name, text_lower):
                 score += 1
 
             for keyword in keywords:
-                if keyword.lower() in text_lower:
+                if _word_boundary_match(keyword, text_lower):
                     score += 1
 
             if score > 0:

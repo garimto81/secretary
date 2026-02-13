@@ -55,6 +55,8 @@ class DispatchResult:
 class ActionDispatcher:
     """액션 디스패처 - 탐지된 액션을 실제 자동화로 연결"""
 
+    KOREAN_RELATIVE_DATES = {"오늘", "내일", "모레", "이번", "다음", "금주", "차주"}
+
     def __init__(self, dry_run: bool = False):
         """
         Args:
@@ -258,7 +260,7 @@ class ActionDispatcher:
 
     def _is_parsable_date(self, deadline_text: str) -> bool:
         """
-        deadline_text가 날짜로 파싱 가능한지 간단히 확인
+        deadline_text가 날짜로 파싱 가능한지 확인
 
         Args:
             deadline_text: 마감일 텍스트
@@ -266,7 +268,6 @@ class ActionDispatcher:
         Returns:
             True if 파싱 가능할 것으로 예상
         """
-        # 간단한 휴리스틱: YYYY-MM-DD 형식 또는 숫자 포함
         if not deadline_text:
             return False
 
@@ -275,7 +276,14 @@ class ActionDispatcher:
             return True
 
         # 숫자가 포함되어 있으면 파싱 시도 가능
-        return any(c.isdigit() for c in deadline_text)
+        if any(c.isdigit() for c in deadline_text):
+            return True
+
+        # 한국어 상대 날짜
+        if any(kr in deadline_text for kr in self.KOREAN_RELATIVE_DATES):
+            return True
+
+        return False
 
     async def _run_calendar_dry_run(self, message: NormalizedMessage, deadline_text: str) -> str:
         """

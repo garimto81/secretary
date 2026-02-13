@@ -52,6 +52,7 @@ class GmailAdapter(ChannelAdapter):
         self._polling_interval: int = config.get("polling_interval", 60)
         self._last_history_id: Optional[str] = None
         self._seen_ids: set = set()
+        self._max_seen: int = 5000
 
         # Deprecated config 경고
         if "label_filter" in config:
@@ -226,6 +227,11 @@ class GmailAdapter(ChannelAdapter):
             except Exception as e:
                 print(f"[GmailAdapter] 메시지 조회 실패 ({msg_id}): {e}")
 
+        # seen_ids 크기 제한
+        if len(self._seen_ids) > self._max_seen:
+            keep = list(self._seen_ids)[-self._max_seen // 2:]
+            self._seen_ids = set(keep)
+
         return normalized
 
     async def _fallback_poll(self) -> list:
@@ -272,6 +278,11 @@ class GmailAdapter(ChannelAdapter):
                     }, ensure_ascii=False),
                 ))
 
+            # seen_ids 크기 제한
+            if len(self._seen_ids) > self._max_seen:
+                keep = list(self._seen_ids)[-self._max_seen // 2:]
+                self._seen_ids = set(keep)
+
             return normalized
         except Exception as e:
             print(f"[GmailAdapter] fallback 조회 실패: {e}")
@@ -284,7 +295,7 @@ class GmailAdapter(ChannelAdapter):
             return "unknown"
 
         # 사용자 정의 라벨 우선 (대문자가 아닌 것)
-        user_labels = [l for l in meaningful if not l.isupper()]
+        user_labels = sorted([l for l in meaningful if not l.isupper()])
         if user_labels:
             return user_labels[0].lower()
 

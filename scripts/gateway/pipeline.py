@@ -116,6 +116,39 @@ class MessagePipeline:
             re.compile(p, re.IGNORECASE) for p in self.config["deadline_patterns"]
         ]
 
+        # 긴급 키워드 정규식 (단어 경계)
+        self._urgent_patterns = []
+        for keyword in self.config["urgent_keywords"]:
+            pattern = re.compile(
+                rf'(?:^|[\s,.\-!?;:()\"\'·]){re.escape(keyword)}(?:[\s,.\-!?;:()\"\'·]|$)',
+                re.IGNORECASE
+            )
+            self._urgent_patterns.append(pattern)
+
+        # 긴급 부정 컨텍스트 패턴 (이 패턴에 매칭되면 긴급이 아님)
+        self._urgent_deny_patterns = [
+            re.compile(r'지금까지|지금은|지금처럼|지금도', re.IGNORECASE),
+            re.compile(r'바로가기|바로잡|바로옆|바로그', re.IGNORECASE),
+        ]
+
+        # 액션 완료형 제외 패턴
+        self._action_completion_patterns = {}
+        for keyword in self.config["action_keywords"]:
+            self._action_completion_patterns[keyword] = re.compile(
+                rf'{re.escape(keyword)}(했|됐|완료|끝|드립니다|드렸|감사)',
+                re.IGNORECASE
+            )
+
+        # 질문 패턴 (URL, 코드블록 제외용 정규식)
+        self._url_pattern = re.compile(r'https?://\S+')
+        self._code_block_pattern = re.compile(r'`[^`]*`')
+        self._question_patterns = [
+            re.compile(r'\?(?!\S*[/=&])'),  # URL query string이 아닌 ?
+            re.compile(r'(?:^|[\s])어떻게(?:[\s]|$)', re.MULTILINE),
+            re.compile(r'(?:^|[\s])언제(?:[\s]|$)', re.MULTILINE),
+            re.compile(r'(?:^|[\s])왜(?:[\s,.\-!?]|$)', re.MULTILINE),
+        ]
+
         # Action Dispatcher 초기화
         try:
             from scripts.gateway.action_dispatcher import ActionDispatcher
@@ -191,16 +224,18 @@ class MessagePipeline:
             message: 분석할 메시지
 
         Returns:
-            우선순위 문자열 ('urgent', 'high', 'normal', 'low') 또는 None
+            우선순위 문자열 ('urgent', 'high', 'normal') 또는 None
         """
         text = message.text or ""
-        text_lower = text.lower()
 
-        # 긴급 키워드 체크
-        urgent_keywords = self.config["urgent_keywords"]
-        for keyword in urgent_keywords:
-            if keyword.lower() in text_lower:
-                return "urgent"
+        # 부정 컨텍스트 체크 (먼저 실행)
+        has_deny = any(p.search(text) for p in self._urgent_deny_patterns)
+
+        # 긴급 키워드 체크 (단어 경계 정규식)
+        if not has_deny:
+            for pattern in self._urgent_patterns:
+                if pattern.search(text):
+                    return "urgent"
 
         # 멘션인 경우 높은 우선순위
         if message.is_mention:
@@ -227,22 +262,26 @@ class MessagePipeline:
         text_lower = text.lower()
         actions = []
 
-        # 액션 키워드 체크
+        # 액션 키워드 체크 (완료형 제외, 모든 매칭 수집)
         action_keywords = self.config["action_keywords"]
         for keyword in action_keywords:
             if keyword.lower() in text_lower:
+                # 완료형인지 확인
+                completion_pat = self._action_completion_patterns.get(keyword)
+                if completion_pat and completion_pat.search(text):
+                    continue
                 actions.append(f"action_request:{keyword}")
-                break
 
-        # 마감일 감지
+        # 마감일 감지 (모든 매칭 수집)
         for pattern in self._deadline_patterns:
             match = pattern.search(text)
             if match:
                 actions.append(f"deadline:{match.group(0)}")
-                break
 
-        # 질문 패턴 감지
-        if "?" in text or "어떻게" in text or "언제" in text or "왜" in text:
+        # 질문 패턴 감지 (URL, 코드블록 제외)
+        text_clean = self._url_pattern.sub('', text)
+        text_clean = self._code_block_pattern.sub('', text_clean)
+        if any(p.search(text_clean) for p in self._question_patterns):
             actions.append("question")
 
         return actions
