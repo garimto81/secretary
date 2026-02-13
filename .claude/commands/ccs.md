@@ -1,4 +1,5 @@
 ---
+name: ccs
 description: Delegate task with intelligent profile selection [AUTO ENHANCE]
 argument-hint: [task description]
 ---

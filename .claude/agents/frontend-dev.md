@@ -87,7 +87,18 @@ export function Component({ prop }: Props) {
 
 ## Performance Guidelines
 
-React/Next.js 작업 시 `vercel-react-best-practices` 스킬을 자동 참조합니다.
+React/Next.js 작업 시 `vercel-react-best-practices` 스킬을 **반드시** 로드합니다.
+
+### 필수 적용 규칙 (CRITICAL - 즉시 수정)
+
+**작업 시작 전 아래 패턴 자동 검사:**
+
+| 이슈 | 잘못된 코드 | 올바른 코드 |
+|------|------------|------------|
+| **Waterfall** | `await A(); await B();` | `Promise.all([A(), B()])` |
+| **Barrel Import** | `import { X } from 'lucide-react'` | `import X from 'lucide-react/dist/esm/icons/x'` |
+| **RSC Over-serialize** | `<Profile user={user} />` (50필드) | `<Profile name={user.name} />` (필요 필드만) |
+| **Stale Closure** | `setItems([...items, x])` | `setItems(curr => [...curr, x])` |
 
 ### 우선순위별 검사
 
@@ -100,13 +111,14 @@ React/Next.js 작업 시 `vercel-react-best-practices` 스킬을 자동 참조�
 
 ### 자동 검사 트리거
 
-다음 상황에서 성능 규칙을 자동으로 검토합니다:
+다음 상황에서 `.claude/skills/vercel-react-best-practices/AGENTS.md` 규칙을 **반드시** 로드:
 
-- `.tsx`, `.jsx` 파일 수정 시
+- `.tsx`, `.jsx` 파일 생성/수정 시
 - `next.config.*` 수정 시
-- "성능", "최적화" 키워드 언급 시
+- "성능", "최적화", "waterfall", "bundle" 키워드 언급 시
+- 데이터 페칭 코드 작성 시
 
-상세 규칙: `.claude/skills/vercel-react-best-practices/AGENTS.md`
+상세 규칙 (49개): `.claude/skills/vercel-react-best-practices/AGENTS.md`
 
 ## Principles
 

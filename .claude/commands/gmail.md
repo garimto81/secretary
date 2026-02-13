@@ -1,3 +1,8 @@
+---
+name: gmail
+description: Gmail 메일 관리 커맨드
+---
+
 # /gmail - Gmail 관리 커맨드
 
 Gmail 메일 읽기, 검색, 전송, 관리를 위한 통합 커맨드.

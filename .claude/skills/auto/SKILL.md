@@ -1,7 +1,7 @@
 ---
 name: auto
 description: 하이브리드 자율 워크플로우 - OMC+BKIT 통합 (Ralph + Ultrawork + PDCA 필수)
-version: 16.0.0
+version: 17.0.0
 triggers:
   keywords:
     - "/auto"
@@ -29,15 +29,6 @@ bkit_agents:
 # /auto - 하이브리드 자율 워크플로우 (v16.0 - OMC+BKIT 통합)
 
 > **핵심**: `/auto "작업"` = **PDCA 문서화(필수)** + Ralph 루프 + Ultrawork 병렬 + **이중 검증**
-
-## 🆕 v16.0 변경사항 (OMC + BKIT 통합)
-
-| 기능 | 설명 | 활성화 |
-|------|------|:------:|
-| **PDCA 문서화** | Plan→Design→Do→Check→Act 자동 | ✅ 필수 |
-| **이중 검증** | OMC Architect + BKIT gap-detector 병렬 | ✅ 기본 |
-| **43 에이전트** | OMC 32개 + BKIT 11개 통합 | ✅ |
-| **병렬 비교** | 동일 도메인 OMC/BKIT 결과 비교 | ✅ |
 
 ## OMC + BKIT Integration
 
@@ -99,24 +90,99 @@ Skill(skill="oh-my-claudecode:autopilot", args="작업 설명")
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Step 0.1: Plan 문서 생성**
+**Step 0.1: Plan 문서 생성 (Ralplan 연동)**
+
+**복잡도 점수 판단 (MANDATORY - 5점 만점):**
+
+작업 설명을 분석하여 아래 5개 조건을 평가합니다. 각 조건 충족 시 1점.
+
+| # | 조건 | 1점 기준 | 0점 기준 |
+|:-:|------|---------|---------|
+| 1 | **파일 범위** | 3개 이상 파일 수정 예상 | 1-2개 파일 |
+| 2 | **아키텍처** | 새 패턴/구조 도입 | 기존 패턴 내 수정 |
+| 3 | **의존성** | 새 라이브러리/서비스 추가 | 기존 의존성만 사용 |
+| 4 | **모듈 영향** | 2개 이상 모듈/패키지 영향 | 단일 모듈 내 변경 |
+| 5 | **사용자 명시** | `ralplan` 키워드 포함 | 키워드 없음 |
+
+**판단 규칙:**
+- **score >= 3** → Ralplan 실행 (Planner + Architect + Critic 합의)
+- **score < 3** → Planner 단독 실행
+
+**판단 로그 출력 (항상 필수):**
+```
+═══ 복잡도 판단 ═══
+파일 범위: {0|1}점 ({근거})
+아키텍처: {0|1}점 ({근거})
+의존성:   {0|1}점 ({근거})
+모듈 영향: {0|1}점 ({근거})
+사용자 명시: {0|1}점
+총점: {score}/5 → {Ralplan 실행|Planner 단독}
+═══════════════════
+```
+
+**score >= 3: Ralplan 실행**
+
+```
+# Step A: Ralplan 실행 (Planner → Architect → Critic 합의)
+# Critic은 반드시 기존 Plan 문서(docs/01-plan/)와의 범위 중복을 확인해야 합니다
+Skill(skill="oh-my-claudecode:ralplan", args="작업 설명. Critic 추가 검증: docs/01-plan/ 내 기존 Plan과 범위 겹침 여부 확인 필수")
+
+# Step B: 합의 결과를 PDCA Plan 문서로 기록
+Task(
+  subagent_type="oh-my-claudecode:executor",
+  model="sonnet",
+  description="[PDCA Plan] Ralplan 결과 문서화",
+  prompt="Ralplan 합의 결과를 docs/01-plan/{feature}.plan.md에 기록하세요.
+
+  포함 항목:
+  - 복잡도 점수: {score}/5 (각 조건별 판단 근거)
+  - 합의된 아키텍처 결정사항
+  - 구현 범위 및 제외 항목
+  - 예상 영향 파일 목록
+  - 위험 요소 및 완화 방안
+  - Planner/Architect/Critic 각 관점 요약
+  - 관련 PRD: {PRD-NNNN 또는 '없음'}
+  - 기존 Plan 중복 확인: {중복 없음 또는 겹치는 Plan 파일명}"
+)
+```
+→ `docs/01-plan/{feature}.plan.md` 생성 (Ralplan 합의 결과 포함)
+
+**score < 3: Planner 단독 실행**
 ```
 Task(
   subagent_type="oh-my-claudecode:planner",
   model="opus",
   description="[PDCA Plan] 기능 계획",
-  prompt="..."
+  prompt="... (복잡도 점수: {score}/5, 판단 근거 포함)"
 )
 ```
-→ `docs/01-plan/{feature}.plan.md` 생성
+→ `docs/01-plan/{feature}.plan.md` 생성 (단독 Planner 결과)
 
-**Step 0.2: Design 문서 생성**
+**Step 0.2: Design 문서 생성 (Plan 게이트 검증 포함)**
+
+**Plan→Design 전환 게이트 (MANDATORY):**
+Design 생성 전 Plan 문서에 아래 4개 필수 섹션이 존재하는지 확인합니다.
+누락 시 Plan 문서를 먼저 보완한 후 Design으로 진행합니다.
+
+| # | 필수 섹션 | 확인 방법 |
+|:-:|----------|----------|
+| 1 | 배경/문제 정의 | `## 배경` 또는 `## 문제 정의` 헤딩 존재 |
+| 2 | 구현 범위 | `## 구현 범위` 또는 `## 범위` 헤딩 존재 |
+| 3 | 예상 영향 파일 | 파일 경로 목록 포함 (`.py`, `.ts`, `.md` 등) |
+| 4 | 위험 요소 | `## 위험` 또는 `위험 요소` 헤딩 존재 |
+
 ```
+# Plan 게이트 검증
+plan_path = "docs/01-plan/{feature}.plan.md"
+# Read plan_path → 4개 필수 섹션 존재 확인
+# 누락 시 → executor로 Plan 보완 후 진행
+
 Task(
   subagent_type="oh-my-claudecode:architect",
   model="opus",
   description="[PDCA Design] 기능 설계",
-  prompt="..."
+  prompt="docs/01-plan/{feature}.plan.md를 참조하여 설계 문서를 작성하세요.
+  Plan Reference 필드에 Plan 문서 경로를 명시하세요."
 )
 ```
 → `docs/02-design/{feature}.design.md` 생성
@@ -133,15 +199,85 @@ Task(subagent_type="bkit:gap-detector", model="opus", ...)
 - Architect: 기능 완성도 검증
 - gap-detector: 설계-구현 90% 일치 검증
 
-**Step 0.5: Act (조건부)**
-```
-# gap < 90% 인 경우 자동 개선
-Task(subagent_type="bkit:pdca-iterator", model="sonnet", ...)
-```
-- 최대 5회 반복 후 90% 달성까지
+**Step 0.5: Act (자동 실행 - CRITICAL)**
 
-**완료 보고서:**
-→ `docs/04-report/{feature}.report.md` 생성
+**PDCA 완료 시 자동 실행 규칙 (Recommended 출력 금지):**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              Act Phase 자동 실행 로직                         │
+│                                                             │
+│   Check 결과                      자동 실행                  │
+│   ─────────────────────────────────────────────────────────  │
+│   gap < 90%         →  bkit:pdca-iterator (최대 5회 반복)    │
+│   gap >= 90%        →  bkit:report-generator (자동 호출)     │
+│   Architect REJECT  →  oh-my-claudecode:executor (수정)     │
+│   모든 조건 충족     →  완료 보고서 자동 생성                  │
+│                                                             │
+│   ⚠️ "Recommended: ..." 출력 후 종료 = 금지                  │
+│   ⚠️ 자동 실행 후 결과 출력 = 필수                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Case 1: gap < 90%**
+```
+Task(
+  subagent_type="bkit:pdca-iterator",
+  model="sonnet",
+  description="[PDCA Act] 갭 자동 개선",
+  prompt="설계-구현 갭을 90% 이상으로 개선하세요. 최대 5회 반복."
+)
+```
+
+**Case 2: gap >= 90%**
+```
+Task(
+  subagent_type="bkit:report-generator",
+  model="haiku",
+  description="[PDCA Report] 완료 보고서 생성",
+  prompt="PDCA 사이클 완료 보고서를 생성하세요.
+
+  포함 항목:
+  - Plan 요약: docs/01-plan/{feature}.plan.md
+  - Design 요약: docs/02-design/{feature}.design.md
+  - 구현 결과 및 변경 파일 목록
+  - Check 결과 (gap-detector 점수, Architect 판정)
+  - 교훈 및 개선 사항
+
+  출력 위치: docs/04-report/{feature}.report.md"
+)
+```
+
+**Case 3: Architect REJECT**
+```
+Task(
+  subagent_type="oh-my-claudecode:executor",
+  model="sonnet",
+  description="[PDCA Act] Architect 피드백 반영",
+  prompt="Architect 거부 사유를 해결하세요: {rejection_reason}"
+)
+# 해결 후 Check Phase 재실행
+```
+
+**자동 실행 후 출력 형식:**
+```
+═══════════════════════════════════════════════════
+ ✅ PDCA 사이클 완료
+═══════════════════════════════════════════════════
+ Check 결과: gap 94% (≥90% 통과)
+ Act 실행: report-generator → docs/04-report/{feature}.report.md
+
+ 📄 보고서 생성 완료
+═══════════════════════════════════════════════════
+```
+
+**❌ 금지 패턴:**
+```
+# 이렇게 출력하고 끝내면 안됨!
+💡 Recommended: /pdca report vercel-bp-integration (완료 리포트 자동화)
+```
+
+→ Recommended가 있으면 **즉시 자동 실행** 후 결과 출력
 
 ### Phase 1: 옵션 라우팅 (있을 경우)
 
@@ -153,6 +289,9 @@ Task(subagent_type="bkit:pdca-iterator", model="sonnet", ...)
 | `--research` | `Skill(skill="research", args="...")` | 리서치 모드 |
 | `--slack <채널>` | Slack 채널 분석 후 컨텍스트 주입 | 채널 히스토리 기반 작업 |
 | `--gmail` | Gmail 메일 분석 후 컨텍스트 주입 | 메일 기반 작업 |
+| `--daily` | `Skill(skill="daily")` | daily v3.0 9-Phase Pipeline (Config Bootstrap 내장) |
+| `--daily --slack` | `Skill(skill="daily")` | 동일 Pipeline + Phase 6 Slack Lists 갱신 |
+| `--interactive` | 각 Phase 전환 시 사용자 승인 요청 | 단계적 승인 모드 |
 
 **옵션 체인 예시:**
 ```
@@ -364,6 +503,71 @@ Task(
 → 결과 출력
 ```
 
+### `--daily` 옵션 워크플로우 (v3.0)
+
+`/auto --daily`는 daily v3.0 스킬을 직접 호출합니다. 모든 로직(Config Bootstrap, 증분 수집, AI 분석, 액션 추천)은 daily 스킬 내부에서 처리됩니다.
+
+**사용 형식:**
+```bash
+/auto --daily                    # 9-Phase Pipeline 전체 실행
+/auto --daily --slack            # 동일 + Phase 6 Slack Lists 갱신
+/auto --daily ebs                # EBS 전용 브리핑
+```
+
+**라우팅:**
+```
+/auto --daily
+    │
+    └─► Skill(skill="daily") 직접 호출
+        └─► daily v3.0 Phase 0~8 자체 실행
+            Phase 0: Config Bootstrap (auto-generate .project-sync.yaml)
+            Phase 1: Expert Context Loading (프로젝트 전문가 학습)
+            Phase 2: Incremental Collection (Gmail/Slack/GitHub 증분)
+            Phase 3: Attachment Analysis (PDF/Excel AI 분석)
+            Phase 4: Cross-Source Analysis (크로스소스 연결)
+            Phase 5: Action Recommendation (액션 초안 생성)
+            Phase 6: Project-Specific Ops (vendor/dev 타입별)
+            Phase 7: Gmail Housekeeping (라벨/정리)
+            Phase 8: State Update (커서/캐시 저장)
+```
+
+**상세 워크플로우:** `.claude/skills/daily/SKILL.md` (v3.0) 참조
+
+### `--interactive` 옵션 워크플로우
+
+각 PDCA Phase 전환 시 사용자에게 확인을 요청하여 단계적 승인을 받습니다.
+
+**사용 형식:**
+```bash
+/auto --interactive "작업 설명"        # 모든 Phase에서 승인 요청
+/auto --interactive --skip-plan "작업"  # Plan 건너뛰고 Design부터 시작
+```
+
+**동작 방식:**
+
+각 Phase 전환 시 `AskUserQuestion`을 호출하여 사용자 선택을 받습니다:
+
+| Phase 전환 | 선택지 | 기본값 |
+|-----------|--------|:------:|
+| Plan 완료 → Design | 진행 / 수정 / 건너뛰기 | 진행 |
+| Design 완료 → Do | 진행 / 수정 / 건너뛰기 | 진행 |
+| Do 완료 → Check | 진행 / 수정 | 진행 |
+| Check 결과 → Act | 자동 개선 / 수동 수정 / 완료 | 자동 개선 |
+
+**Phase 전환 시 출력 형식:**
+
+```
+═══════════════════════════════════════════════════
+ Phase [현재] 완료 → Phase [다음] 진입 대기
+═══════════════════════════════════════════════════
+ 산출물: docs/01-plan/{feature}.plan.md
+ 소요 에이전트: planner (opus), critic (opus)
+ 핵심 결정: [1줄 요약]
+═══════════════════════════════════════════════════
+```
+
+**--interactive 미사용 시** (기본 동작): 모든 Phase를 자동으로 진행합니다.
+
 ## Ralph 루프 워크플로우 (CRITICAL)
 
 **autopilot = Ralplan + Ultrawork + Ralph 루프**
@@ -396,11 +600,27 @@ Architect 검증
 
 **5개 조건 모두 충족될 때까지 자동으로 반복합니다.**
 
-### Phase 2: 메인 워크플로우 (Ralph + Ultrawork)
+### Phase 2: 메인 워크플로우 (Ralph + Ultrawork + Team Coordinator)
 
 **작업이 주어지면 (`/auto "작업내용"`):**
 
-1. **Ralplan 호출** (복잡한 작업인 경우):
+**Step 2.0: 복잡도 기반 라우팅 (10점 만점 확장)**
+
+Step 0.1의 5점 만점 복잡도 점수를 10점으로 확장합니다:
+
+| 점수 (10점) | 라우팅 경로 | 설명 |
+|:-----------:|------------|------|
+| 0-3 | 기존 경로 | Ralplan/Planner 단독 |
+| 4-5 | Team Coordinator → Dev 단독 | 단일 기능 구현 |
+| 6-7 | Team Coordinator → Dev + Quality | 기능 + 품질 검증 |
+| 8-9 | Team Coordinator → Dev + Quality + Research | 복잡한 기능 + 조사 |
+| 10 | Team Coordinator → 4팀 전체 | 대규모 프로젝트 |
+
+**5점 → 10점 변환**: `score_10 = score_5 * 2` (기본). `"teamwork"` 키워드 포함 시 자동 10점.
+
+**score < 4 (기존 경로 보존):**
+
+1. **Ralplan 호출** (score >= 3인 경우):
    ```
    Skill(skill="oh-my-claudecode:ralplan", args="작업내용")
    ```
@@ -421,6 +641,29 @@ Architect 검증
    | UI 작업 | `oh-my-claudecode:designer` | sonnet |
    | 테스트 | `oh-my-claudecode:qa-tester` | sonnet |
    | 빌드 에러 | `oh-my-claudecode:build-fixer` | sonnet |
+
+**score >= 4 (Team Coordinator):**
+
+```python
+from src.agents.teams import Coordinator
+
+coordinator = Coordinator()
+result = coordinator.run("작업 설명")
+```
+
+또는 OMC 에이전트로 위임:
+```
+Task(
+  subagent_type="oh-my-claudecode:executor-high",
+  model="opus",
+  prompt="Team Coordinator를 통해 멀티팀 워크플로우를 실행하세요.
+  프로젝트: {작업 설명}
+  복잡도: {score}/10
+  투입 팀: {teams}"
+)
+```
+
+**인과관계 보존**: Team Coordinator는 Tier 3 WORK의 하위에서 동작합니다. 기존 Tier 0-5 Discovery는 그대로 유지.
 
 4. **Architect 검증** (완료 전 필수):
    ```
@@ -446,6 +689,30 @@ Architect 검증
 | 4 | SUPPORT | staged 파일, 린트 에러 | `/commit`, `/check` |
 | 5 | AUTONOMOUS | 코드 품질 개선 | 리팩토링 제안 |
 
+### Phase 4: /work --loop 통합 (장기 계획)
+
+> **상태**: 설계 완료, 구현 예정 (2026-03 목표)
+
+`/work --loop`의 자율 반복 기능을 `/auto --work`로 흡수합니다.
+
+**통합 매핑:**
+
+| 기존 | 신규 | 동작 |
+|------|------|------|
+| `/work --loop` | `/auto --work` | PDCA 없이 빠른 자율 반복 실행 |
+| `/work "작업"` | `/work "작업"` | 단일 작업 실행 (변경 없음) |
+
+**`/auto --work` 모드:**
+- PDCA 문서화 생략 (빠른 실행)
+- Ralplan 대신 단순 Planner 호출
+- Ralph 루프 5개 조건 검증 유지
+- Context 90% 임계값 관리 유지
+
+**마이그레이션:**
+1. `/work --loop` 사용 시 `/auto --work`로 자동 redirect
+2. 기존 /work 커맨드는 단일 작업 실행으로 역할 유지
+3. `.claude/rules/08-skill-routing.md` 인과관계 그래프 업데이트
+
 ## 세션 관리
 
 ```bash
@@ -464,3 +731,32 @@ Architect 검증
 ## 상세 워크플로우
 
 추가 세부사항: `.claude/commands/auto.md`
+
+## 변경 이력
+
+### v18.0.0 (daily v3.0 - 9-Phase Pipeline)
+
+| 기능 | 설명 | 활성화 |
+|------|------|:------:|
+| **daily v3.0 통합** | 9-Phase Pipeline으로 --daily 전면 재설계 | ✅ |
+| **Secretary 의존 제거** | Gmail/Slack/GitHub 직접 수집으로 교체 | ✅ |
+| **Project Context Discovery 내부화** | Config Bootstrap이 daily v3.0 Phase 0으로 이전 | ✅ |
+| **daily-sync deprecated** | daily v3.0에 기능 흡수, redirect 설정 | ✅ |
+| **--daily 섹션 간소화** | 상세 로직을 daily/SKILL.md로 이전 | ✅ |
+
+### v16.2.0 (Act Phase 자동 실행)
+
+| 기능 | 설명 | 활성화 |
+|------|------|:------:|
+| **Act 자동 실행** | "Recommended" 출력 금지, 즉시 자동 실행 | ✅ 필수 |
+| **bkit Hook 연동** | session-start.js Auto-Execute 규칙 | ✅ 필수 |
+| **완료 보고서 자동** | gap >= 90% 시 report-generator 자동 호출 | ✅ 기본 |
+
+### v16.0 (OMC + BKIT 통합)
+
+| 기능 | 설명 | 활성화 |
+|------|------|:------:|
+| **PDCA 문서화** | Plan→Design→Do→Check→Act 자동 | ✅ 필수 |
+| **이중 검증** | OMC Architect + BKIT gap-detector 병렬 | ✅ 기본 |
+| **43 에이전트** | OMC 32개 + BKIT 11개 통합 | ✅ |
+| **병렬 비교** | 동일 도메인 OMC/BKIT 결과 비교 | ✅ |

@@ -84,7 +84,7 @@ You are a [Domain] specialist focusing on [specific expertise].
 | Exa Search | `exa-mcp-server` | Web search |
 | Sequential Thinking | `@modelcontextprotocol/server-sequential-thinking` | Complex reasoning |
 | TaskManager | `@kazuph/mcp-taskmanager` | Task management |
-| Playwright | `@anthropic/mcp-playwright` | Browser automation |
+| Playwright | `npx playwright` (CLI) | Browser automation |
 | GitHub | `@anthropic/mcp-github` | GitHub integration |
 
 ## Command Template

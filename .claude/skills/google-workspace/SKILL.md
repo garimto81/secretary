@@ -402,6 +402,22 @@ C:\claude\
 
 **서비스 계정 이메일**: `archive-sync@ggp-academy.iam.gserviceaccount.com`
 
+### Google Drive 프로젝트 기반 폴더 구조
+
+Drive 루트에는 프로젝트별로 다음과 같은 폴더 구조가 유지됩니다:
+
+```
+Google Drive (루트)
+├── WSOPTV/              # WSOPTV 프로젝트
+├── EBS/                 # EBS 프로젝트
+├── 지지프로덕션/        # 지지프로덕션 프로젝트
+├── 브로드스튜디오/      # 브로드스튜디오 프로젝트
+├── _개인/               # 개인 파일 (접두사 _ 사용)
+└── _아카이브/           # 아카이브 파일 (접두사 _ 사용)
+```
+
+프로젝트별 폴더 ID는 `get_project_folder_id()` 함수로 조회합니다.
+
 ⚠️ **중요**: 서비스 계정은 스토리지 할당량이 없어 **파일 업로드 불가**!
 - 읽기/폴더 생성: 가능
 - 파일 업로드: **OAuth 2.0 필요**
@@ -484,6 +500,7 @@ def get_service_credentials():
 
 ```python
 from googleapiclient.discovery import build
+from lib.google_docs.auth import get_credentials
 
 def read_sheet(spreadsheet_id: str, range_name: str):
     """스프레드시트 데이터 읽기"""
@@ -556,6 +573,20 @@ def append_sheet(spreadsheet_id: str, range_name: str, values: list):
 ```
 
 ## Google Drive 연동
+
+### 인증 및 프로젝트 폴더 조회
+
+```python
+from lib.google_docs.auth import get_credentials
+from lib.google_docs.project_registry import get_project_folder_id
+
+# 특정 프로젝트의 폴더 ID 조회
+wsoptv_folder_id = get_project_folder_id('WSOPTV')
+ebs_folder_id = get_project_folder_id('EBS')
+
+# 폴더가 없으면 None 반환
+folder_id = get_project_folder_id('unknown_project')  # None
+```
 
 ### 파일 목록 조회
 
@@ -646,6 +677,8 @@ def download_file(file_id: str, output_path: str):
 ```python
 import base64
 from email.mime.text import MIMEText
+from googleapiclient.discovery import build
+from lib.google_docs.auth import get_credentials
 
 def send_email(to: str, subject: str, body: str):
     """이메일 발송"""
@@ -711,6 +744,8 @@ unread = list_emails(query='is:unread', max_results=5)
 
 ```python
 from datetime import datetime, timedelta
+from googleapiclient.discovery import build
+from lib.google_docs.auth import get_credentials
 
 def list_events(calendar_id: str = 'primary', days: int = 7):
     """일정 목록 조회"""

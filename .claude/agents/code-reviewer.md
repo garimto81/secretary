@@ -57,6 +57,23 @@ You are a senior code reviewer ensuring high standards of code quality and secur
 - Caching strategies
 - Memory leaks
 
+### 7. React/Next.js Performance (Important)
+
+React/Next.js 코드 리뷰 시 아래 규칙을 **반드시** 검사합니다:
+
+| 우선순위 | 이슈 | 감지 패턴 | 수정 방법 |
+|:--------:|------|----------|----------|
+| 🔴 CRITICAL | Waterfall | `await A(); await B();` | `Promise.all([A(), B()])` |
+| 🔴 CRITICAL | Barrel Import | `from 'lucide-react'` | Direct import |
+| 🟠 HIGH | RSC Over-serialization | 50+ fields to client | Pick 필요 필드만 |
+| 🟡 MEDIUM | Stale Closure | `setItems([...items, x])` | `setItems(curr => [...curr, x])` |
+
+**자동 감지 트리거:**
+- `.tsx`, `.jsx` 파일 변경 시 위 규칙 자동 검사
+- CRITICAL 이슈 발견 시 **Blocker**로 표시
+
+상세 규칙: `.claude/skills/vercel-react-best-practices/AGENTS.md`
+
 ## Output Format
 
 ```markdown

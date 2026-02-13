@@ -16,6 +16,13 @@ triggers:
     - "서버 컴포넌트"
     - "리렌더링"
     - "React 성능"
+    - "번들 크기"
+    - "async waterfall"
+    - "Promise.all"
+    - "barrel import"
+    - "dynamic import"
+    - "sequential await"
+    - "stale closure"
   file_patterns:
     - "**/*.tsx"
     - "**/*.jsx"

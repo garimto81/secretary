@@ -1,7 +1,7 @@
 ---
 name: playwright-wrapper
 description: >
-  Playwright 브라우저 자동화 래퍼. MCP 대신 CLI 직접 호출.
+  Playwright 브라우저 자동화 래퍼. CLI 및 Python SDK 직접 호출.
   E2E 테스트, 스크린샷, 웹 자동화에 사용.
 version: 1.0.0
 
@@ -119,11 +119,19 @@ export default defineConfig({
 | `/check` | 테스트 포함 전체 검사 |
 | `/tdd` | TDD 워크플로우 |
 
-## MCP 플러그인 활성화 (필요시)
+## 대화형 브라우저 제어 (Python SDK)
 
-대화형 브라우저 제어가 필요한 경우:
+MCP 대신 Python SDK를 사용하여 대화형 브라우저 제어가 가능합니다:
 
-```bash
-claude plugin enable playwright@claude-plugins-official
-# 세션 재시작 필요
+```python
+from playwright.sync_api import sync_playwright
+
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=False)
+    page = browser.new_page()
+    page.goto("https://example.com")
+    # 대화형 작업 수행
+    browser.close()
 ```
+
+> **참고**: Python SDK 설치: `pip install playwright && playwright install`

@@ -1,4 +1,5 @@
 ---
+name: ccs-continue
 description: Continue last CCS delegation session [AUTO ENHANCE]
 argument-hint: [follow-up instruction]
 ---

@@ -174,6 +174,17 @@ C. Core Features
 | **Priority** | P1 |
 | **Created** | 2025-12-24 |
 ...
+
+## 관련 문서
+
+| 문서 유형 | 경로 |
+|----------|------|
+| Plan | `docs/01-plan/{feature}.plan.md` |
+| Design | `docs/02-design/{feature}.design.md` |
+| Analysis | `docs/03-analysis/{feature}.analysis.md` |
+| Report | `docs/04-report/{feature}.report.md` |
+
+> PRD와 PDCA 문서를 상호 연결합니다. 해당 PDCA 문서가 존재하면 경로를 기입하고, 없으면 행을 제거합니다.
 ```
 
 ### 메타데이터 레지스트리

@@ -107,9 +107,12 @@ python -m lib.slack login
 | `python -m lib.slack login` | OAuth 인증 (최초 1회) |
 | `python -m lib.slack status` | 인증 상태 확인 |
 | `python -m lib.slack send <channel> <message>` | 메시지 전송 |
+| `python -m lib.slack update <channel> <ts> <message>` | 기존 메시지 갱신 |
 | `python -m lib.slack history <channel>` | 메시지 히스토리 |
 | `python -m lib.slack channels` | 채널 목록 |
 | `python -m lib.slack user <user_id>` | 사용자 정보 |
+| `python -m lib.slack list-items <list_id>` | Slack List 항목 조회 |
+| `python -m lib.slack list-add <list_id> <title>` | Slack List에 항목 추가 |
 
 ## Usage Examples
 

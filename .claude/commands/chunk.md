@@ -55,7 +55,7 @@ PDF를 LLM 입력용 청크로 분할합니다.
 2. `--info` 옵션 시: 빠른 정보 출력 (foreground)
 3. 청킹 실행: **백그라운드**로 실행
    ```powershell
-   python C:\claude\ebs\tools\pdf_chunker.py <pdf_path> -t <tokens> --overlap <overlap> -o <output.json>
+   python -m lib.pdf_utils chunk <pdf_path> --tokens <tokens> --overlap <overlap> -o <output.json>
    ```
 4. 작업 상태 안내
 5. 완료 시 JSON 파일 경로 및 요약 출력
@@ -67,10 +67,10 @@ PDF를 LLM 입력용 청크로 분할합니다.
 3. 청킹 실행: **백그라운드**로 실행
    ```powershell
    # file 모드 (기본) - 분할 PDF 파일 생성
-   python C:\claude\ebs\tools\pdf_page_chunker.py <pdf_path> --pages <N> --format file
+   python -m lib.pdf_utils chunk <pdf_path> --page --pages <N>
 
    # inline 모드 - Base64 JSON 출력 (API용)
-   python C:\claude\ebs\tools\pdf_page_chunker.py <pdf_path> --pages <N> --format inline -o <output.json>
+   python -m lib.pdf_utils chunk <pdf_path> --page --pages <N> --inline -o <output.json>
    ```
 4. 완료 시 출력 디렉토리/파일 경로 안내
 
@@ -133,11 +133,11 @@ PDF를 LLM 입력용 청크로 분할합니다.
 ## 스크립트 경로
 
 ```
-# 토큰 기반 (텍스트 추출)
-C:\claude\ebs\tools\pdf_chunker.py
+# 통합 CLI
+python -m lib.pdf_utils chunk [옵션]
 
-# 페이지 기반 (레이아웃 보존)
-C:\claude\ebs\tools\pdf_page_chunker.py
+# 소스 모듈
+C:\claude\lib\pdf_utils\
 ```
 
 ## 의존성
