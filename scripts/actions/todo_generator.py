@@ -23,6 +23,7 @@ Format:
 """
 
 import argparse
+import asyncio
 import json
 import sys
 from datetime import datetime
@@ -215,6 +216,103 @@ def save_todo_file(content: str, date: Optional[str] = None) -> Path:
         f.write(content)
 
     return output_file
+
+
+async def append_todo_from_message(
+    title: str,
+    priority: str,  # "high" | "medium" | "low"
+    sender: str,
+    deadline: str = "",
+    source_type: str = "gateway",
+) -> Path:
+    """
+    Pipeline에서 호출하는 async wrapper - 오늘자 TODO 파일에 항목 추가
+
+    Args:
+        title: TODO 항목 제목
+        priority: 우선순위 ("high" | "medium" | "low")
+        sender: 발신자
+        deadline: 마감일 (선택)
+        source_type: 소스 타입 (기본: "gateway")
+
+    Returns:
+        생성/수정된 TODO 파일 경로
+    """
+
+    def _sync_append() -> Path:
+        """동기 파일 I/O 작업"""
+        date = datetime.now().strftime("%Y-%m-%d")
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        output_file = OUTPUT_DIR / f"{date}.md"
+
+        # 새 항목 생성
+        task = {
+            "type": source_type,
+            "priority": priority,
+            "title": title,
+            "sender": sender,
+        }
+        if deadline:
+            task["deadline"] = deadline
+
+        # 기존 파일이 있으면 해당 우선순위 섹션에 추가
+        if output_file.exists():
+            with open(output_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # 우선순위 섹션 찾기
+            priority_section_map = {
+                "high": "## 긴급 (High)",
+                "medium": "## 보통 (Medium)",
+                "low": "## 낮음 (Low)",
+            }
+            target_section = priority_section_map.get(priority, "## 낮음 (Low)")
+
+            # 새 항목 문자열 생성
+            meta = []
+            if sender:
+                meta.append(f"발신: {sender}")
+            if deadline:
+                meta.append(f"마감: {deadline}")
+            meta_str = f" ({', '.join(meta)})" if meta else ""
+            new_item_line = f"- [ ] {title}{meta_str}\n"
+
+            # 섹션 찾아서 추가
+            section_found = False
+            insert_index = -1
+
+            for i, line in enumerate(lines):
+                if line.strip() == target_section:
+                    section_found = True
+                    # 다음 빈 줄 또는 다음 섹션 전에 삽입
+                    for j in range(i + 1, len(lines)):
+                        if lines[j].startswith("##") or lines[j].strip() == "":
+                            insert_index = j
+                            break
+                    if insert_index == -1:
+                        insert_index = len(lines)
+                    break
+
+            if section_found:
+                # 섹션이 있으면 해당 섹션에 추가
+                lines.insert(insert_index, new_item_line)
+            else:
+                # 섹션이 없으면 끝에 섹션 생성 후 추가
+                lines.extend(["\n", target_section + "\n", "\n", new_item_line, "\n"])
+
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+
+        else:
+            # 파일이 없으면 새로 생성
+            markdown = generate_markdown([task], date)
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(markdown)
+
+        return output_file
+
+    # asyncio.to_thread로 동기 I/O를 비동기 실행
+    return await asyncio.to_thread(_sync_append)
 
 
 def main():
