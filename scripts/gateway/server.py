@@ -23,7 +23,7 @@ import signal
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
@@ -32,36 +32,41 @@ if sys.platform == "win32":
 # 스크립트 직접 실행 시 경로 추가
 if __name__ == "__main__":
     _script_dir = Path(__file__).resolve().parent
-    _project_root = _script_dir.parent.parent
+    _project_root = _script_dir.parent.parent  # C:\claude\secretary
     if str(_project_root) not in sys.path:
         sys.path.insert(0, str(_project_root))
+    # lib.slack, lib.gmail 등 공유 라이브러리 경로
+    _claude_root = _project_root.parent  # C:\claude
+    if str(_claude_root) not in sys.path:
+        sys.path.insert(0, str(_claude_root))
 
 # 상대/절대 import 모두 지원
 try:
-    from scripts.gateway.models import NormalizedMessage, ChannelType
-    from scripts.gateway.storage import UnifiedStorage
-    from scripts.gateway.pipeline import MessagePipeline, PipelineResult
     from scripts.gateway.adapters.base import ChannelAdapter
+    from scripts.gateway.channel_registry import ChannelRegistry
+    from scripts.gateway.pipeline import MessagePipeline
+    from scripts.gateway.storage import UnifiedStorage
 except ImportError:
     try:
-        from gateway.models import NormalizedMessage, ChannelType
-        from gateway.storage import UnifiedStorage
-        from gateway.pipeline import MessagePipeline, PipelineResult
         from gateway.adapters.base import ChannelAdapter
+        from gateway.channel_registry import ChannelRegistry
+        from gateway.pipeline import MessagePipeline
+        from gateway.storage import UnifiedStorage
     except ImportError:
-        from .models import NormalizedMessage, ChannelType
-        from .storage import UnifiedStorage
-        from .pipeline import MessagePipeline, PipelineResult
         from .adapters.base import ChannelAdapter
+        from .channel_registry import ChannelRegistry
+        from .pipeline import MessagePipeline
+        from .storage import UnifiedStorage
 
 
 # 기본 경로
 DEFAULT_CONFIG_PATH = Path(r"C:\claude\secretary\config\gateway.json")
+DEFAULT_CHANNELS_PATH = Path(r"C:\claude\secretary\config\channels.json")
 DEFAULT_DATA_DIR = Path(r"C:\claude\secretary\data")
 PID_FILE = DEFAULT_DATA_DIR / "gateway.pid"
 
 
-def load_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
+def load_config(config_path: Path | None = None) -> dict[str, Any]:
     """
     설정 파일 로드
 
@@ -74,7 +79,7 @@ def load_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
     path = config_path or DEFAULT_CONFIG_PATH
 
     if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
 
     # 기본 설정 반환
@@ -83,19 +88,12 @@ def load_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
         "port": 8800,
         "data_dir": str(DEFAULT_DATA_DIR),
         "channels": {
-            "telegram": {"enabled": False},
-            "whatsapp": {"enabled": False},
-            "discord": {"enabled": False},
             "slack": {"enabled": False},
-            "kakao": {"enabled": False},
+            "gmail": {"enabled": False},
         },
         "pipeline": {
             "urgent_keywords": ["긴급", "urgent", "ASAP", "지금", "바로", "즉시"],
             "action_keywords": ["해주세요", "부탁", "요청", "확인", "검토"],
-        },
-        "notifications": {
-            "toast_enabled": True,
-            "sound_enabled": False,
         },
         "safety": {
             "auto_send_disabled": True,
@@ -119,7 +117,7 @@ class SecretaryGateway:
         await gateway.start()
     """
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """
         Gateway 초기화
 
@@ -127,12 +125,17 @@ class SecretaryGateway:
             config_path: 설정 파일 경로
         """
         self.config = load_config(config_path)
-        self.adapters: Dict[str, ChannelAdapter] = {}
-        self.pipeline: Optional[MessagePipeline] = None
-        self.storage: Optional[UnifiedStorage] = None
+        self.adapters: dict[str, ChannelAdapter] = {}
+        self.pipeline: MessagePipeline | None = None
+        self.storage: UnifiedStorage | None = None
         self._running = False
-        self._tasks: List[asyncio.Task] = []
-        self._start_time: Optional[datetime] = None
+        self._tasks: list[asyncio.Task] = []
+        self._start_time: datetime | None = None
+        self._reporter = None
+        self._intel_storage = None
+        self._intel_handler = None
+        self._channel_registry: ChannelRegistry | None = None
+        self._channel_watcher = None
 
     async def start(self) -> None:
         """Gateway 시작"""
@@ -154,8 +157,8 @@ class SecretaryGateway:
 
         # 파이프라인 초기화
         pipeline_config = self.config.get("pipeline", {})
-        pipeline_config["toast_enabled"] = self.config.get("notifications", {}).get("toast_enabled", True)
-        pipeline_config["rate_limit_per_minute"] = self.config.get("safety", {}).get("rate_limit_per_minute", 10)
+        safety_cfg = self.config.get("safety", {})
+        pipeline_config["rate_limit_per_minute"] = safety_cfg.get("rate_limit_per_minute", 10)
 
         self.pipeline = MessagePipeline(self.storage, pipeline_config)
 
@@ -167,6 +170,13 @@ class SecretaryGateway:
 
         print(f"Gateway 시작 완료 (포트: {self.config.get('port', 8800)})")
         print(f"활성화된 채널: {list(self.adapters.keys())}")
+        print("종료: Ctrl+C")
+
+        # ChannelWatcher 시작 (channels.json 감시)
+        await self._start_channel_watcher()
+
+        # FR-04: 초기 채널 덤프 (덤프 없는 채널만, 백그라운드)
+        asyncio.create_task(self._run_initial_channel_dumps())
 
         # 메시지 수신 루프 시작
         await self._message_loop()
@@ -192,6 +202,38 @@ class SecretaryGateway:
                 print(f"  - {name} 어댑터 연결 해제")
             except Exception as e:
                 print(f"  - {name} 어댑터 연결 해제 실패: {e}")
+
+        # Reporter 중지
+        if self._reporter:
+            try:
+                await self._reporter.stop()
+                print("  - Reporter 중지")
+            except Exception as e:
+                print(f"  - Reporter 중지 실패: {e}")
+
+        # ChannelWatcher 중지
+        if self._channel_watcher:
+            try:
+                await self._channel_watcher.stop()
+                print("  - ChannelWatcher 중지")
+            except Exception as e:
+                print(f"  - ChannelWatcher 중지 실패: {e}")
+
+        # Intelligence 워커 중지
+        if self._intel_handler:
+            try:
+                await self._intel_handler.stop_worker()
+                print("  - Intelligence 워커 중지")
+            except Exception as e:
+                print(f"  - Intelligence 워커 중지 실패: {e}")
+
+        # Intelligence 스토리지 종료
+        if self._intel_storage:
+            try:
+                await self._intel_storage.close()
+                print("  - Intelligence 스토리지 종료")
+            except Exception as e:
+                print(f"  - Intelligence 스토리지 종료 실패: {e}")
 
         # 스토리지 종료
         if self.storage:
@@ -225,6 +267,21 @@ class SecretaryGateway:
     async def _connect_adapters(self) -> None:
         """설정된 어댑터 연결"""
         channels_config = self.config.get("channels", {})
+
+        # ChannelRegistry 로드 시도 (channels.json 존재 시)
+        if DEFAULT_CHANNELS_PATH.exists():
+            try:
+                registry = ChannelRegistry()
+                registry.load(DEFAULT_CHANNELS_PATH)
+                self._channel_registry = registry
+
+                # monitor 역할 채널로 Slack 채널 목록 override
+                monitor_channels = registry.get_by_role("monitor", "slack")
+                if monitor_channels and "slack" in channels_config:
+                    channels_config["slack"]["channels"] = monitor_channels
+                    print(f"  - ChannelRegistry: {len(monitor_channels)}개 채널 로드됨")
+            except Exception as e:
+                print(f"  - ChannelRegistry 로드 실패, gateway.json 폴백: {e}")
 
         # 자동 어댑터 생성 (Slack, Gmail)
         for channel_name, channel_config in channels_config.items():
@@ -298,12 +355,54 @@ class SecretaryGateway:
             ollama_config = intel_config.get("ollama")
             claude_config = intel_config.get("claude_draft")
 
+            # 레지스트리 우선, 없으면 gateway.json 폴백
+            if self._channel_registry is not None:
+                chatbot_channels = self._channel_registry.get_by_role("chatbot", "slack")
+            else:
+                chatbot_channels = intel_config.get("chatbot_channels", [])
+
             handler = ProjectIntelligenceHandler(
                 storage=intel_storage,
                 registry=registry,
                 ollama_config=ollama_config,
                 claude_config=claude_config,
+                chatbot_channels=chatbot_channels,
             )
+
+            # handler 참조 보관 (종료 시 worker 정리용)
+            self._intel_handler = handler
+
+            # IntelligenceStorage 참조 보관 (종료 시 close용)
+            self._intel_storage = intel_storage
+
+            # PriorityQueue 워커 시작
+            await handler.start_worker()
+            print("  - Intelligence PriorityQueue 워커 시작")
+
+            # Reporter 초기화 (gateway.json의 reporter 섹션)
+            reporter_config = self.config.get("reporter", {})
+            if reporter_config.get("enabled", False):
+                try:
+                    from scripts.reporter.reporter import SecretaryReporter
+                except ImportError:
+                    try:
+                        from reporter.reporter import SecretaryReporter
+                    except ImportError:
+                        SecretaryReporter = None
+
+                if SecretaryReporter is not None:
+                    try:
+                        reporter = SecretaryReporter(
+                            gateway_storage=self.storage,
+                            intel_storage=intel_storage,
+                            config=reporter_config,
+                        )
+                        await reporter.start()
+                        handler.set_reporter(reporter)
+                        self._reporter = reporter
+                        print("  - Reporter 시작 (Slack DM)")
+                    except Exception as e:
+                        print(f"  - Reporter 시작 실패: {e}")
 
             self.pipeline.add_handler(handler.handle)
             tier1 = "ollama" if ollama_config and ollama_config.get("enabled") else "규칙만"
@@ -314,10 +413,73 @@ class SecretaryGateway:
         except Exception as e:
             print(f"  - Intelligence 핸들러 등록 실패: {e}")
 
+    async def _run_initial_channel_dumps(self) -> None:
+        """FR-04: 등록된 채널 중 덤프 파일 없는 채널을 백그라운드로 덤프."""
+        try:
+            try:
+                from scripts.knowledge.channel_message_dumper import ChannelMessageDumper
+            except ImportError:
+                try:
+                    from knowledge.channel_message_dumper import ChannelMessageDumper
+                except ImportError:
+                    return
+
+            dumper = ChannelMessageDumper()
+
+            # channels.json enabled Slack 채널 수집
+            channels: list[str] = []
+            if self._channel_registry is not None:
+                for role in ("monitor", "chatbot", "intelligence"):
+                    for ch_id in self._channel_registry.get_by_role(role, "slack"):
+                        if ch_id not in channels:
+                            channels.append(ch_id)
+            elif DEFAULT_CHANNELS_PATH.exists():
+                try:
+                    data = json.loads(DEFAULT_CHANNELS_PATH.read_text(encoding="utf-8"))
+                    for ch in data.get("channels", []):
+                        if ch.get("enabled") and ch.get("channel_type") == "slack":
+                            ch_id = ch.get("channel_id")
+                            if ch_id and ch_id not in channels:
+                                channels.append(ch_id)
+                except Exception:
+                    pass
+
+            if not channels:
+                return
+
+            print(f"  - FR-04: {len(channels)}개 채널 초기 덤프 체크")
+            for channel_id in channels:
+                if not self._running:
+                    break
+                try:
+                    await dumper.dump(channel_id, force=False)
+                except Exception as e:
+                    print(f"  - FR-04: {channel_id} 덤프 실패 (무시): {e}")
+        except Exception as e:
+            print(f"  - FR-04: 초기 덤프 훅 오류 (무시): {e}")
+
+    async def _start_channel_watcher(self) -> None:
+        """ChannelWatcher 시작 (channels.json 감시)"""
+        try:
+            try:
+                from scripts.gateway.channel_watcher import ChannelWatcher
+            except ImportError:
+                try:
+                    from gateway.channel_watcher import ChannelWatcher
+                except ImportError:
+                    from .channel_watcher import ChannelWatcher
+
+            watcher = ChannelWatcher()
+            await watcher.start()
+            self._channel_watcher = watcher
+            print("  - ChannelWatcher 시작 (channels.json 감시)")
+        except Exception as e:
+            print(f"  - ChannelWatcher 시작 실패 (무시): {e}")
+
     async def _message_loop(self) -> None:
         """메시지 수신 루프"""
         # 각 어댑터에 대해 수신 태스크 생성
-        for name, adapter in self.adapters.items():
+        for _name, adapter in self.adapters.items():
             if adapter.is_connected:
                 task = asyncio.create_task(self._adapter_listen_loop(adapter))
                 self._tasks.append(task)
@@ -357,7 +519,7 @@ class SecretaryGateway:
         except Exception as e:
             print(f"[{channel_name}] 수신 오류: {e}")
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """
         상태 조회
 
@@ -398,7 +560,7 @@ class SecretaryGateway:
             PID_FILE.unlink()
 
     @staticmethod
-    def get_running_pid() -> Optional[int]:
+    def get_running_pid() -> int | None:
         """
         실행 중인 Gateway PID 조회
 
@@ -406,7 +568,7 @@ class SecretaryGateway:
             PID 또는 None
         """
         if PID_FILE.exists():
-            with open(PID_FILE, "r") as f:
+            with open(PID_FILE) as f:
                 try:
                     return int(f.read().strip())
                 except ValueError:
@@ -526,7 +688,10 @@ async def cmd_start(args: argparse.Namespace) -> None:
     try:
         await gateway.start()
     except KeyboardInterrupt:
-        await gateway.stop()
+        print("\nCtrl+C 감지, 종료 중...")
+    finally:
+        if gateway._running:
+            await gateway.stop()
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
