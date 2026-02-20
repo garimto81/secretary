@@ -5,21 +5,20 @@ import math
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 # 3중 import fallback
 try:
-    from scripts.knowledge.store import KnowledgeStore
     from scripts.knowledge.channel_profile import ChannelProfileStore
+    from scripts.knowledge.store import KnowledgeStore
 except ImportError:
     try:
-        from knowledge.store import KnowledgeStore
         from knowledge.channel_profile import ChannelProfileStore
+        from knowledge.store import KnowledgeStore
     except ImportError:
-        from .store import KnowledgeStore
         from .channel_profile import ChannelProfileStore
+        from .store import KnowledgeStore
 
 
 # 한국어 불용어 (조사, 접속사, 1음절 한자어 등)
@@ -48,6 +47,15 @@ ENGLISH_STOPWORDS = {
     "up", "out", "so", "as", "all", "any", "each", "every",
 }
 
+# URL/GitHub 오염 불용어 (TF-IDF 키워드 오염 방지)
+URL_STOPWORDS = {
+    "http", "https", "www", "com", "org", "net", "io", "kr",
+    "github", "garimto", "blob", "tree", "main", "master",
+    "issues", "pulls", "commit", "raw", "releases", "tag",
+    "report", "invalid", "closed", "open", "label",
+    "html", "json", "xml", "yaml", "md",
+}
+
 # 의사결정 패턴 (한국어)
 DECISION_PATTERNS = [
     r"결정|확정|채택|승인|반려",
@@ -61,6 +69,28 @@ ACTION_KEYWORDS = {"배포", "릴리즈", "머지", "deploy", "release", "merge"
 
 # 요청자 패턴
 REQUEST_PATTERNS = [r"\?", r"부탁", r"해주세요", r"해줘", r"확인.*부탁", r"검토.*부탁"]
+
+# 이슈/에러 패턴
+ISSUE_RE = re.compile(r"에러|오류|실패|error|bug|fix|timeout|403|404|500|배포.*실패", re.IGNORECASE)
+
+# 기술 스택 패턴
+TECH_PATTERNS = {
+    "언어/프레임워크": re.compile(r"\b(python|fastapi|typescript|react|next\.?js)\b", re.IGNORECASE),
+    "DB/저장소": re.compile(r"\b(sqlite|postgresql|redis|fts5|aiosqlite)\b", re.IGNORECASE),
+    "인프라": re.compile(r"\b(docker|github.?actions|slack|gmail|oauth)\b", re.IGNORECASE),
+    "AI/ML": re.compile(r"\b(ollama|qwen|claude|gpt|llm|rag)\b", re.IGNORECASE),
+}
+
+# 버전 패턴
+VERSION_RE = re.compile(r"\b(\d+\.\d+(?:\.\d+)?)\b")
+
+# 도메인 키워드
+DOMAIN_KEYWORDS = {
+    "백엔드": {"api", "server", "database", "db", "endpoint", "gateway", "pipeline", "sqlite", "postgresql"},
+    "인프라": {"deploy", "docker", "ci", "cd", "github", "actions", "배포", "서버", "인프라"},
+    "AI/ML": {"llm", "ollama", "claude", "gpt", "model", "embedding", "rag", "inference", "분석"},
+    "QA/리뷰": {"test", "pytest", "review", "pr", "merge", "테스트", "리뷰", "검토"},
+}
 
 
 class ChannelMasteryAnalyzer:
@@ -109,6 +139,9 @@ class ChannelMasteryAnalyzer:
                 "key_decisions": [],
                 "member_roles": {},
                 "active_topics": [],
+                "issue_patterns": [],
+                "tech_stack": [],
+                "resolution_patterns": [],
             }
 
         # 채널 프로파일
@@ -133,15 +166,24 @@ class ChannelMasteryAnalyzer:
         # 5. 채널 요약 생성
         channel_summary = self._build_summary(profile, documents, top_keywords)
 
+        # 6. 이슈 패턴 추출
+        issue_patterns = self._extract_issue_patterns(documents)
+
+        # 7. 기술 스택 추출
+        tech_stack = self._extract_tech_stack(documents)
+
         return {
             "channel_summary": channel_summary,
             "top_keywords": top_keywords,
             "key_decisions": key_decisions[:10],
             "member_roles": member_roles,
             "active_topics": active_topics[:10],
+            "issue_patterns": issue_patterns,
+            "tech_stack": tech_stack,
+            "resolution_patterns": [],
         }
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         """텍스트를 토큰화 (한국어 + 영어)"""
         if not text:
             return []
@@ -149,13 +191,13 @@ class ChannelMasteryAnalyzer:
         tokens = re.findall(r'[가-힣]{2,}|[a-zA-Z]{2,}|[0-9]+[a-zA-Z]+|[a-zA-Z]+[0-9]+', text)
         return [t.lower() for t in tokens]
 
-    def _extract_keywords(self, documents: list, top_n: int = 20) -> List[str]:
+    def _extract_keywords(self, documents: list, top_n: int = 20) -> list[str]:
         """TF-IDF 간이 구현으로 상위 키워드 추출"""
         if not documents:
             return []
 
         try:
-            all_stopwords = KOREAN_STOPWORDS | ENGLISH_STOPWORDS
+            all_stopwords = KOREAN_STOPWORDS | ENGLISH_STOPWORDS | URL_STOPWORDS
 
             # 각 문서의 토큰화
             doc_tokens = []
@@ -190,7 +232,7 @@ class ChannelMasteryAnalyzer:
             logger.exception("_extract_keywords 실패")
             return []
 
-    def _extract_decisions(self, documents: list) -> List[str]:
+    def _extract_decisions(self, documents: list) -> list[str]:
         """의사결정 관련 메시지 추출"""
         decisions = []
 
@@ -231,8 +273,8 @@ class ChannelMasteryAnalyzer:
 
         return decisions
 
-    def _analyze_member_roles(self, documents: list) -> Dict[str, str]:
-        """멤버 역할 분류 (발언량, 액션, 요청 패턴 기반)"""
+    def _analyze_member_roles(self, documents: list) -> dict[str, str]:
+        """멤버 역할 분류 (발언량, 액션, 요청 패턴 + 도메인 기여 기반)"""
         if not documents:
             return {}
 
@@ -241,6 +283,7 @@ class ChannelMasteryAnalyzer:
             msg_count = Counter()  # 발언량
             action_count = Counter()  # 액션 키워드 발언
             request_count = Counter()  # 요청 패턴 발언
+            domain_count: dict[str, Counter] = defaultdict(Counter)  # 멤버별 도메인 카운트
 
             compiled_request = [re.compile(p) for p in REQUEST_PATTERNS]
 
@@ -265,6 +308,13 @@ class ChannelMasteryAnalyzer:
                         request_count[sender] += 1
                         break
 
+                # 도메인 키워드 체크
+                for domain, keywords in DOMAIN_KEYWORDS.items():
+                    for kw in keywords:
+                        if kw in text:
+                            domain_count[sender][domain] += 1
+                            break
+
             if not msg_count:
                 return {}
 
@@ -272,28 +322,95 @@ class ChannelMasteryAnalyzer:
 
             # 상위 3인: 주요 발언자
             top_speakers = msg_count.most_common(3)
-            for sender, count in top_speakers:
+            for sender, _count in top_speakers:
                 roles[sender] = "주요 발언자"
 
-            # 액션 키워드 비율 높은 멤버: 실행 담당
+            # 액션 키워드 비율 높은 멤버: 실행 담당 (+ 도메인)
             for sender, a_count in action_count.most_common():
                 sender_total = msg_count.get(sender, 1)
                 if sender_total > 0 and (a_count / sender_total) > 0.15:
-                    roles[sender] = "실행 담당"
+                    domain = self._top_domain(domain_count.get(sender, Counter()))
+                    roles[sender] = f"실행 담당 ({domain})" if domain else "실행 담당"
 
-            # 요청 패턴 비율 높은 멤버: 요청자
+            # 요청 패턴 비율 높은 멤버: 요청자 (+ 도메인)
             for sender, r_count in request_count.most_common():
                 sender_total = msg_count.get(sender, 1)
                 if sender_total > 0 and (r_count / sender_total) > 0.2:
                     if sender not in roles or roles[sender] == "주요 발언자":
-                        roles[sender] = "요청자"
+                        domain = self._top_domain(domain_count.get(sender, Counter()))
+                        roles[sender] = f"요청자 ({domain})" if domain else "요청자"
 
             return roles
         except Exception:
             logger.exception("_analyze_member_roles 실패")
             return {}
 
-    def _extract_active_topics(self, documents: list, keywords: List[str]) -> List[str]:
+    def _top_domain(self, domain_counter: Counter) -> str:
+        """가장 많이 나온 도메인명 반환 (없으면 빈 문자열)"""
+        if not domain_counter:
+            return ""
+        return domain_counter.most_common(1)[0][0]
+
+    def _extract_issue_patterns(self, documents: list) -> list[str]:
+        """에러/이슈 키워드 클러스터링 — 2회 이상 반복 패턴만 반환 (최대 8개)"""
+        try:
+            token_counter: Counter = Counter()
+
+            for doc in documents:
+                text = doc.content or ""
+                if not ISSUE_RE.search(text):
+                    continue
+
+                tokens = self._tokenize(text)
+                all_stopwords = KOREAN_STOPWORDS | ENGLISH_STOPWORDS | URL_STOPWORDS
+                for t in tokens:
+                    if t not in all_stopwords and len(t) >= 2:
+                        token_counter[t] += 1
+
+            result = []
+            for kw, cnt in token_counter.most_common(20):
+                if cnt >= 2:
+                    result.append(f"{kw} 관련 이슈 ({cnt}회)")
+                if len(result) >= 8:
+                    break
+
+            return result
+        except Exception:
+            logger.exception("_extract_issue_patterns 실패")
+            return []
+
+    def _extract_tech_stack(self, documents: list) -> list[str]:
+        """기술 스택 패턴 매칭 (버전 정보 포함, 최대 15개)"""
+        try:
+            found: dict[str, str] = {}  # tech → version (버전 있으면 채워 넣기)
+
+            for doc in documents:
+                text = doc.content or ""
+
+                for _category, pattern in TECH_PATTERNS.items():
+                    for match in pattern.finditer(text):
+                        tech = match.group(0).lower()
+                        if tech not in found:
+                            # 버전 탐지: tech 바로 뒤에 X.Y.Z 패턴
+                            after = text[match.end():match.end() + 20]
+                            ver_match = VERSION_RE.search(after)
+                            found[tech] = ver_match.group(0) if ver_match else ""
+
+            result = []
+            for tech, version in found.items():
+                if version:
+                    result.append(f"{tech} {version}")
+                else:
+                    result.append(tech)
+                if len(result) >= 15:
+                    break
+
+            return result
+        except Exception:
+            logger.exception("_extract_tech_stack 실패")
+            return []
+
+    def _extract_active_topics(self, documents: list, keywords: list[str]) -> list[str]:
         """최근 30일 메시지에서 활성 토픽 추출"""
         try:
             cutoff = datetime.now() - timedelta(days=30)
@@ -331,7 +448,7 @@ class ChannelMasteryAnalyzer:
                     topics.append(pair)
 
             # 단독 키워드도 추가
-            for kw, count in recent_counter.most_common(10):
+            for kw, _count in recent_counter.most_common(10):
                 if kw not in " ".join(topics) and len(topics) < 10:
                     topics.append(kw)
 
@@ -340,7 +457,7 @@ class ChannelMasteryAnalyzer:
             logger.exception("_extract_active_topics 실패")
             return keywords[:5] if keywords else []
 
-    def _build_summary(self, profile, documents: list, keywords: List[str]) -> str:
+    def _build_summary(self, profile, documents: list, keywords: list[str]) -> str:
         """채널 요약 생성"""
         try:
             parts = []

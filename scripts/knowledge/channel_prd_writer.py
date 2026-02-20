@@ -1,5 +1,6 @@
 """ChannelPRDWriter — 채널 Mastery 분석 결과를 PRD 마크다운 문서로 생성/업데이트"""
 import asyncio
+import json
 import logging
 from datetime import date
 from pathlib import Path
@@ -260,4 +261,149 @@ class ChannelPRDWriter:
             return None
         except Exception as e:
             logger.warning(f"Claude subprocess 호출 실패: {e}")
+            return None
+
+    async def write_from_dump(self, channel_id: str, dump_path: str | Path, force: bool = False) -> Path:
+        """JSON 덤프 파일을 Sonnet으로 분석하여 채널 지식 MD 생성."""
+        CHANNEL_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = CHANNEL_DOCS_DIR / f"{channel_id}.md"
+
+        if out_path.exists() and not force:
+            logger.info(f"채널 PRD 이미 존재, 스킵: {channel_id}")
+            return out_path
+
+        messages = self._load_dump(dump_path)
+        if not messages:
+            logger.warning(f"덤프 메시지 없음: {dump_path}")
+            return out_path
+
+        logger.info(f"[PRDWriter] {channel_id}: {len(messages)}개 메시지 → Sonnet 분석 시작")
+
+        if len(messages) <= 500:
+            messages_text = self._messages_to_text(messages)
+            prompt = self._build_dump_prompt(channel_id, messages_text)
+            content = None
+            try:
+                content = await self._call_claude(prompt)
+            except Exception as e:
+                logger.warning(f"Claude 분석 실패: {e}")
+        else:
+            content = await self._chunked_analysis(channel_id, messages)
+
+        if not content:
+            logger.warning(f"Sonnet 분석 실패, fallback 사용: {channel_id}")
+            mastery_context = {"channel_name": channel_id}
+            content = self._build_fallback_prd(channel_id, mastery_context)
+        else:
+            missing = self._validate_sections(content)
+            if missing:
+                mastery_context = {"channel_name": channel_id}
+                content = self._merge_missing_sections(content, channel_id, mastery_context, missing)
+
+        out_path.write_text(content, encoding="utf-8")
+        logger.info(f"채널 PRD (from dump) 저장 완료: {out_path}")
+        return out_path
+
+    def _load_dump(self, dump_path: str | Path) -> list[dict]:
+        """덤프 JSON에서 messages 리스트 로드. 최신 순 정렬."""
+        try:
+            data = json.loads(Path(dump_path).read_text(encoding="utf-8"))
+            messages = data.get("messages", [])
+            messages.sort(key=lambda m: m.get("ts", ""))
+            return messages
+        except Exception as e:
+            logger.error(f"덤프 로드 실패: {e}")
+            return []
+
+    def _messages_to_text(self, messages: list[dict], max_chars_per_msg: int = 200) -> str:
+        """메시지 리스트 → 분석용 텍스트 변환."""
+        lines = []
+        for msg in messages:
+            ts = msg.get("ts", "")
+            user = msg.get("user", "unknown")
+            text = (msg.get("text", "") or "")[:max_chars_per_msg]
+            thread = " [스레드]" if msg.get("thread_ts") else ""
+            if text.strip():
+                lines.append(f"[{ts}] {user}{thread}: {text}")
+        return "\n".join(lines)
+
+    def _build_dump_prompt(self, channel_id: str, messages_text: str) -> str:
+        """실제 대화 기반 Sonnet PRD 생성 프롬프트."""
+        today = date.today().isoformat()
+        return f"""다음은 Slack 채널({channel_id})의 실제 대화 내용입니다.
+
+[실제 대화 내용]
+{messages_text}
+
+위 대화를 바탕으로 채널 지식 문서(마크다운)를 생성하세요. URL, 사용자ID(Uxxxxx 형태), GitHub 링크 파편은 토픽으로 취급하지 마세요.
+
+다른 텍스트 없이 아래 형식의 마크다운만 출력하세요:
+
+# {channel_id} 지식 문서
+최종 갱신: {today}
+
+## 채널 개요
+(대화에서 파악한 채널의 실제 목적을 2-3문장으로)
+
+## 주요 토픽
+(대화에서 반복적으로 논의된 실제 주제, 각 항목을 - 로 시작. URL/ID 제외)
+
+## 핵심 의사결정
+(대화에서 확정된 결정사항, - YYYY-MM-DD: 내용 형식)
+
+## 멤버 역할
+(대화 패턴에서 파악한 멤버 역할, - 멤버명: 역할)
+
+## 최근 변경사항
+- [{today}] 채널 지식 문서 생성 (전체 메시지 분석 기반)
+
+## 커뮤니케이션 특성
+(이 채널 특유의 대화 방식, 톤, 주의사항)
+
+## 기술 스택
+(대화에서 실제 언급된 기술만, - 기술명)
+
+## 반복 이슈 패턴 및 해결 가이드
+(반복적으로 등장하는 문제와 그 해결 방법)
+
+## Q&A 패턴
+(자주 묻는 질문 유형과 대답 패턴)
+"""
+
+    async def _chunked_analysis(self, channel_id: str, messages: list[dict], chunk_size: int = 500, overlap: int = 50) -> str | None:
+        """Map-Reduce: 청크별 요약 → 통합 분석."""
+        logger.info(f"[PRDWriter] Map-Reduce 시작: {len(messages)}개 → 청크 {chunk_size}개씩")
+        summaries = []
+        for i in range(0, len(messages), chunk_size - overlap):
+            chunk = messages[i:i + chunk_size]
+            if not chunk:
+                break
+            chunk_text = self._messages_to_text(chunk)
+            summary_prompt = f"""다음 Slack 채널({channel_id}) 대화 청크를 분석하세요.
+
+[대화 청크 {i//chunk_size + 1}]
+{chunk_text}
+
+다음 항목을 추출하여 간결히 정리하세요 (200자 이내):
+- 논의된 주요 주제
+- 발생한 이슈/문제
+- 내려진 결정사항
+- 참여 멤버 역할 힌트
+URL, 사용자ID 파편은 제외."""
+            try:
+                summary = await self._call_claude(summary_prompt)
+                if summary:
+                    summaries.append(f"[청크 {i//chunk_size + 1}]\n{summary}")
+            except Exception as e:
+                logger.warning(f"청크 {i//chunk_size + 1} 요약 실패: {e}")
+
+        if not summaries:
+            return None
+
+        combined = "\n\n".join(summaries)
+        final_prompt = self._build_dump_prompt(channel_id, combined)
+        try:
+            return await self._call_claude(final_prompt)
+        except Exception as e:
+            logger.warning(f"통합 분석 실패: {e}")
             return None
