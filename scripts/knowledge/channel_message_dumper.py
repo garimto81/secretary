@@ -124,19 +124,23 @@ class ChannelMessageDumper:
             user = getattr(msg, 'user', '') or ''
             text = getattr(msg, 'text', '') or ''
             thread_ts = getattr(msg, 'thread_ts', None)
+            raw_reactions = getattr(msg, 'reactions', None) or []
         else:
             ts = msg.get('ts', '')
             user = msg.get('user', '') or ''
             text = msg.get('text', '') or ''
             thread_ts = msg.get('thread_ts')
+            raw_reactions = msg.get('reactions', []) or []
         # thread_ts가 ts와 같으면 None
         if thread_ts == ts:
             thread_ts = None
+        reactions = [f"{r['name']}:{r['count']}" for r in raw_reactions if isinstance(r, dict) and 'name' in r]
         return {
             "ts": ts,
             "user": user,
             "text": text[:4000],
             "thread_ts": thread_ts,
+            "reactions": reactions,
         }
 
     def _load_existing(self, dump_path: Path) -> dict | None:

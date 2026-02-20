@@ -1,9 +1,9 @@
 """ChannelMessageDumper 단위 테스트"""
 import asyncio
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.fixture
@@ -160,3 +160,122 @@ class TestLoadChannelDoc:
         result = handler._load_channel_doc("CNONEXISTENT")
         assert result == ""
         assert isinstance(result, str)
+
+
+class TestChannelMessageDumperRateLimit:
+    def test_dump_sleeps_between_pages(self, tmp_dumper):
+        """여러 페이지 수집 시 asyncio.sleep(1.2) 호출 확인"""
+        from unittest.mock import AsyncMock
+
+        mock_client = MagicMock()
+        tmp_dumper._client = mock_client
+        page1 = [{"ts": "1000.0", "user": "U0", "text": "msg0", "thread_ts": None, "reactions": []}]
+        mock_client.get_history_with_cursor.side_effect = [(page1, "cursor2"), ([], None)]
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            msgs = asyncio.run(tmp_dumper._collect_full("C0123456"))
+
+        mock_sleep.assert_called_once_with(1.2)
+        assert len(msgs) == 1
+
+
+class TestWriteFromDump:
+    def test_write_from_dump_single_chunk(self, tmp_path):
+        """write_from_dump(): ≤500 메시지 → _call_claude 단일 호출"""
+        from scripts.knowledge.channel_prd_writer import ChannelPRDWriter, REQUIRED_SECTIONS
+
+        dump_data = {
+            "channel_id": "C0123456",
+            "messages": [
+                {"ts": f"100{i}.0", "user": f"U{i}", "text": f"msg {i}", "thread_ts": None, "reactions": []}
+                for i in range(5)
+            ],
+        }
+        dump_path = tmp_path / "C0123456.json"
+        dump_path.write_text(json.dumps(dump_data), encoding="utf-8")
+
+        writer = ChannelPRDWriter()
+        mock_content = "# C0123456 지식 문서\n" + "\n".join(
+            f"{s}\n내용" for s in REQUIRED_SECTIONS
+        )
+        with patch("scripts.knowledge.channel_prd_writer.CHANNEL_DOCS_DIR", tmp_path), \
+             patch.object(writer, "_call_claude", return_value=mock_content) as mock_claude:
+            result = asyncio.run(writer.write_from_dump("C0123456", dump_path))
+
+        assert result.exists()
+        mock_claude.assert_called_once()
+
+    def test_write_from_dump_map_reduce(self, tmp_path):
+        """write_from_dump(): >500 메시지 → _chunked_analysis 호출"""
+        from scripts.knowledge.channel_prd_writer import ChannelPRDWriter
+
+        dump_data = {
+            "channel_id": "C0123456",
+            "messages": [
+                {"ts": f"{1000 + i}.0", "user": f"U{i % 5}", "text": f"msg {i}", "thread_ts": None, "reactions": []}
+                for i in range(600)
+            ],
+        }
+        dump_path = tmp_path / "C0123456.json"
+        dump_path.write_text(json.dumps(dump_data), encoding="utf-8")
+
+        writer = ChannelPRDWriter()
+        mock_content = "# C0123456 지식 문서\n분석 결과"
+        with patch("scripts.knowledge.channel_prd_writer.CHANNEL_DOCS_DIR", tmp_path), \
+             patch.object(writer, "_chunked_analysis", return_value=mock_content) as mock_chunked:
+            result = asyncio.run(writer.write_from_dump("C0123456", dump_path))
+
+        assert result.exists()
+        mock_chunked.assert_called_once()
+
+    def test_write_from_dump_skips_existing(self, tmp_path):
+        """write_from_dump(): 기존 파일 있고 force=False → Claude 호출 없이 스킵"""
+        from scripts.knowledge.channel_prd_writer import ChannelPRDWriter
+
+        existing_path = tmp_path / "C0123456.md"
+        existing_path.write_text("# 기존 문서", encoding="utf-8")
+
+        dump_path = tmp_path / "C0123456.json"
+        dump_path.write_text(json.dumps({"messages": []}), encoding="utf-8")
+
+        writer = ChannelPRDWriter()
+        with patch("scripts.knowledge.channel_prd_writer.CHANNEL_DOCS_DIR", tmp_path), \
+             patch.object(writer, "_call_claude") as mock_claude:
+            result = asyncio.run(writer.write_from_dump("C0123456", dump_path, force=False))
+
+        assert result == existing_path
+        mock_claude.assert_not_called()
+        assert existing_path.read_text(encoding="utf-8") == "# 기존 문서"
+
+
+class TestLoadChannelDocCache:
+    def test_load_channel_doc_caches_result(self, tmp_path):
+        """_load_channel_doc(): 동일 mtime이면 캐시에서 반환 (파일 재읽기 없음)"""
+        from scripts.intelligence.response.handler import ProjectIntelligenceHandler
+        import scripts.intelligence.response.handler as handler_module
+
+        storage = MagicMock()
+        registry = MagicMock()
+        handler = ProjectIntelligenceHandler(storage=storage, registry=registry)
+
+        # channel_contexts → channel_docs 치환 경로에 실제 파일 생성
+        ctx_dir = tmp_path / "channel_contexts"
+        ctx_dir.mkdir()
+        doc_dir = tmp_path / "channel_docs"
+        doc_dir.mkdir()
+        doc_file = doc_dir / "CTEST.md"
+        doc_file.write_text("# 실제 내용", encoding="utf-8")
+        actual_mtime = doc_file.stat().st_mtime
+
+        # 동일 mtime으로 캐시 pre-seed
+        handler._channel_doc_cache["CTEST"] = (actual_mtime, "# 캐시된 내용")
+
+        original_dir = handler_module._CHANNEL_CONTEXTS_DIR
+        handler_module._CHANNEL_CONTEXTS_DIR = ctx_dir
+        try:
+            result = handler._load_channel_doc("CTEST")
+        finally:
+            handler_module._CHANNEL_CONTEXTS_DIR = original_dir
+
+        # 캐시 히트 → 파일 내용이 아닌 캐시된 내용 반환
+        assert result == "# 캐시된 내용"
