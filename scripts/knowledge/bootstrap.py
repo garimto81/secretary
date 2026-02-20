@@ -11,20 +11,22 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from html import unescape
 from pathlib import Path
-from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 
 # 3중 import fallback
 try:
-    from scripts.knowledge.models import KnowledgeDocument
+    from scripts.knowledge.models import ChannelProfile, KnowledgeDocument
+    from scripts.knowledge.channel_profile import ChannelProfileStore
     from scripts.knowledge.store import KnowledgeStore
 except ImportError:
     try:
-        from knowledge.models import KnowledgeDocument
+        from knowledge.models import ChannelProfile, KnowledgeDocument
+        from knowledge.channel_profile import ChannelProfileStore
         from knowledge.store import KnowledgeStore
     except ImportError:
-        from .models import KnowledgeDocument
+        from .models import ChannelProfile, KnowledgeDocument
+        from .channel_profile import ChannelProfileStore
         from .store import KnowledgeStore
 
 
@@ -51,8 +53,8 @@ class KnowledgeBootstrap:
     async def learn_gmail(
         self,
         project_id: str,
-        label: Optional[str] = None,
-        query: Optional[str] = None,
+        label: str | None = None,
+        query: str | None = None,
         limit: int = 100,
     ) -> BootstrapResult:
         """Gmail 이메일 일괄 학습
@@ -306,7 +308,7 @@ class KnowledgeBootstrap:
         channel_id: str,
         page_size: int = 100,
         rate_limit_sleep: float = 1.2,
-        resume_cursor: Optional[str] = None,
+        resume_cursor: str | None = None,
     ) -> BootstrapResult:
         """cursor-based pagination으로 채널 전체 히스토리 수집.
 
@@ -573,7 +575,7 @@ class KnowledgeBootstrap:
 
         return metadata
 
-    async def _load_cursor_checkpoint(self, project_id: str, checkpoint_key: str) -> Optional[str]:
+    async def _load_cursor_checkpoint(self, project_id: str, checkpoint_key: str) -> str | None:
         """ingestion_state에서 cursor checkpoint 로드"""
         try:
             self.store._ensure_connected()
@@ -615,6 +617,7 @@ class KnowledgeBootstrap:
         project_id: str,
         channel_id: str,
         page_size: int = 100,
+        force: bool = False,
     ) -> dict:
         """Channel Mastery 전체 실행 (CLI용)
 
@@ -628,7 +631,7 @@ class KnowledgeBootstrap:
         import time as _time
         total_start = _time.monotonic()
 
-        print(f"\n=== Channel Mastery 시작 ===")
+        print("\n=== Channel Mastery 시작 ===")
         print(f"채널: {channel_id}, 프로젝트: {project_id}\n")
 
         # Step 1: 전체 히스토리 수집
@@ -658,8 +661,65 @@ class KnowledgeBootstrap:
                 continue
 
         # Step 3: 채널 메타데이터 수집
-        print(f"\n[3/3] 채널 메타데이터 수집...")
+        print("\n[3/3] 채널 메타데이터 수집...")
         channel_meta = await self._collect_channel_metadata(channel_id)
+
+        # Step 3.5: channel_profiles 테이블에 메타데이터 저장
+        try:
+            profile = ChannelProfile(
+                channel_id=channel_id,
+                channel_name=channel_meta.get("channel_name", ""),
+                topic=channel_meta.get("topic", ""),
+                purpose=channel_meta.get("purpose", ""),
+                created=channel_meta.get("created"),
+                members=channel_meta.get("members", []),
+                pinned_messages=channel_meta.get("pinned_messages", []),
+                collected_at=datetime.now(),
+                total_messages=history_result.total_fetched,
+                total_threads=len(parent_ts_list),
+            )
+            ps = ChannelProfileStore()
+            await ps.init_db()
+            await ps.save(profile)
+            await ps.close()
+            print(f"  채널 프로파일 저장 완료: {channel_id}")
+        except Exception as e:
+            logger.warning(f"channel_profiles 저장 실패 (계속): {e}")
+
+        # Step 4: Mastery 분석
+        print("\n[4/6] Mastery 컨텍스트 분석...")
+        mastery_context = {}
+        try:
+            from scripts.knowledge.mastery_analyzer import ChannelMasteryAnalyzer
+            ps = ChannelProfileStore()
+            await ps.init_db()
+            analyzer = ChannelMasteryAnalyzer(self.store, ps)
+            mastery_context = await analyzer.build_mastery_context(project_id, channel_id)
+            mastery_context["channel_name"] = channel_meta.get("channel_name", channel_id)
+            await ps.close()
+            print(f"  분석 완료: 키워드 {len(mastery_context.get('top_keywords', []))}개, 의사결정 {len(mastery_context.get('key_decisions', []))}건")
+        except Exception as e:
+            logger.warning(f"Mastery 분석 실패 (계속): {e}")
+
+        # Step 5: PRD 문서 생성
+        print("\n[5/6] 채널 PRD 문서 생성...")
+        try:
+            from scripts.knowledge.channel_prd_writer import ChannelPRDWriter
+            writer = ChannelPRDWriter()
+            prd_path = await writer.write(channel_id, mastery_context, force=force)
+            print(f"  PRD 저장: {prd_path}")
+        except Exception as e:
+            logger.warning(f"PRD 생성 실패 (계속): {e}")
+
+        # Step 6: Sonnet 프로파일 생성
+        print("\n[6/6] Sonnet 채널 프로파일 생성...")
+        try:
+            from scripts.knowledge.channel_sonnet_profiler import ChannelSonnetProfiler
+            profiler = ChannelSonnetProfiler()
+            await profiler.build_profile(channel_id, mastery_context, force=force)
+            print(f"  프로파일 저장 완료")
+        except Exception as e:
+            logger.warning(f"Sonnet 프로파일 생성 실패 (계속): {e}")
 
         total_elapsed = _time.monotonic() - total_start
         minutes = int(total_elapsed // 60)
@@ -680,7 +740,7 @@ class KnowledgeBootstrap:
         }
 
         channel_name = channel_meta.get("channel_name") or channel_id
-        print(f"\n=== Channel Mastery 완료 ===")
+        print("\n=== Channel Mastery 완료 ===")
         print(f"채널: #{channel_name} ({channel_id})")
         print(f"총 메시지: {history_result.total_fetched:,}건 (저장: {history_result.total_ingested:,}건)")
         print(f"스레드 replies: {total_replies:,}건 ({len(parent_ts_list):,}개 thread)")
@@ -690,7 +750,7 @@ class KnowledgeBootstrap:
 
         return summary
 
-    def _run_subprocess(self, args: List[str]) -> Optional[dict]:
+    def _run_subprocess(self, args: list[str]) -> dict | None:
         """subprocess 실행 + JSON 파싱
 
         Args:
@@ -731,7 +791,7 @@ class KnowledgeBootstrap:
         source: str,
         checkpoint_key: str,
         documents_ingested: int,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         """ingestion_state 테이블에 체크포인트 저장"""
         try:
@@ -785,6 +845,7 @@ if __name__ == "__main__":
     mastery_parser.add_argument("channel_id", help="Slack 채널 ID")
     mastery_parser.add_argument("--project", default="secretary", help="프로젝트 ID (기본: secretary)")
     mastery_parser.add_argument("--page-size", type=int, default=100, help="페이지당 메시지 수 (기본: 100)")
+    mastery_parser.add_argument("--force", action="store_true", default=False, help="기존 문서 덮어쓰기")
 
     # learn_slack 서브커맨드 (기존 호환)
     slack_parser = subparsers.add_parser("slack", help="Slack 채널 히스토리 학습")
@@ -815,6 +876,7 @@ if __name__ == "__main__":
                     project_id=args.project,
                     channel_id=args.channel_id,
                     page_size=args.page_size,
+                    force=args.force,
                 )
                 if summary.get("errors"):
                     print(f"\n경고: {summary['errors']}건의 오류 발생")
