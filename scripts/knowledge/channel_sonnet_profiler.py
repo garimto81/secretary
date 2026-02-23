@@ -20,8 +20,10 @@ PROMPT_PATH = Path(r"C:\claude\secretary\scripts\intelligence\prompts\channel_pr
 
 class ChannelSonnetProfiler:
     def __init__(self, model: str = "claude-sonnet-4-5", timeout: int = 120):
+        import shutil
         self.model = model
         self.timeout = timeout
+        self.claude_path: str | None = shutil.which("claude")
 
     async def build_profile(
         self,
@@ -86,8 +88,7 @@ class ChannelSonnetProfiler:
     async def _call_sonnet(self, channel_id: str, mastery_context: dict, pinned_messages: list | None = None) -> dict | None:
         """Claude CLI subprocess 호출 (CLAUDECODE 환경변수 제거로 차단 우회)"""
         import os
-        import shutil
-        claude_path = shutil.which("claude")
+        claude_path = self.claude_path
         if not claude_path:
             logger.warning("Claude CLI를 찾을 수 없음")
             return None
