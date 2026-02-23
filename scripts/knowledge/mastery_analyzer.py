@@ -109,6 +109,7 @@ class ChannelMasteryAnalyzer:
         project_id: str,
         channel_id: str,
         top_n_keywords: int = 20,
+        user_map: dict | None = None,
     ) -> dict:
         """채널 전문가 컨텍스트 생성
 
@@ -158,7 +159,7 @@ class ChannelMasteryAnalyzer:
         key_decisions = self._extract_decisions(documents)
 
         # 3. 멤버 역할 파악
-        member_roles = self._analyze_member_roles(documents)
+        member_roles = self._analyze_member_roles(documents, user_map=user_map)
 
         # 4. 활성 토픽 추출 (최근 30일)
         active_topics = self._extract_active_topics(documents, top_keywords)
@@ -172,6 +173,9 @@ class ChannelMasteryAnalyzer:
         # 7. 기술 스택 추출
         tech_stack = self._extract_tech_stack(documents)
 
+        # 8. 메시지 샘플 추출
+        message_samples = self._extract_message_samples(documents, user_map=user_map)
+
         return {
             "channel_summary": channel_summary,
             "top_keywords": top_keywords,
@@ -181,6 +185,7 @@ class ChannelMasteryAnalyzer:
             "issue_patterns": issue_patterns,
             "tech_stack": tech_stack,
             "resolution_patterns": [],
+            "message_samples": message_samples,
         }
 
     def _tokenize(self, text: str) -> list[str]:
@@ -273,7 +278,7 @@ class ChannelMasteryAnalyzer:
 
         return decisions
 
-    def _analyze_member_roles(self, documents: list) -> dict[str, str]:
+    def _analyze_member_roles(self, documents: list, user_map: dict | None = None) -> dict[str, str]:
         """멤버 역할 분류 (발언량, 액션, 요청 패턴 + 도메인 기여 기반)"""
         if not documents:
             return {}
@@ -288,9 +293,11 @@ class ChannelMasteryAnalyzer:
             compiled_request = [re.compile(p) for p in REQUEST_PATTERNS]
 
             for doc in documents:
-                sender = doc.sender_name or doc.sender_id
-                if not sender:
+                raw_sender = doc.sender_name or doc.sender_id
+                if not raw_sender:
                     continue
+                # user_map이 있으면 User ID를 실제 이름으로 변환
+                sender = user_map.get(raw_sender, raw_sender) if user_map else raw_sender
 
                 msg_count[sender] += 1
 
@@ -481,3 +488,74 @@ class ChannelMasteryAnalyzer:
         except Exception:
             logger.exception("_build_summary 실패")
             return f"메시지 {len(documents)}건 분석"
+
+    def _extract_message_samples(
+        self, documents: list, max_samples: int = 20, user_map: dict | None = None
+    ) -> list[dict]:
+        """대표 메시지 샘플 추출 (채널 분위기/문체 파악용)
+
+        선정 기준:
+        - 긴 메시지 우선 (내용이 풍부)
+        - 의사결정 패턴 포함 메시지 우선
+        - 최근 30일 이내 메시지 우선
+        - 동일 발신자 최대 3개 제한
+        - 최대 500자로 절삭
+        """
+        if not documents:
+            return []
+
+        try:
+            compiled_patterns = [re.compile(p) for p in DECISION_PATTERNS]
+            cutoff = datetime.now() - timedelta(days=30)
+
+            # 각 문서에 점수 부여
+            scored = []
+            for doc in documents:
+                text = doc.content or ""
+                if len(text) < 10:
+                    continue
+
+                score = 0
+                # 길이 점수 (50자당 1점, 최대 5점)
+                score += min(len(text) // 50, 5)
+                # 의사결정 패턴 점수 (3점)
+                if any(p.search(text) for p in compiled_patterns):
+                    score += 3
+                # 최근 메시지 점수 (2점)
+                if doc.created_at and doc.created_at >= cutoff:
+                    score += 2
+
+                scored.append((score, doc))
+
+            # 점수 기준 내림차순 정렬
+            scored.sort(key=lambda x: x[0], reverse=True)
+
+            result = []
+            sender_count: Counter = Counter()
+
+            for _score, doc in scored:
+                if len(result) >= max_samples:
+                    break
+
+                raw_sender = doc.sender_name or doc.sender_id or "unknown"
+                # user_map으로 이름 변환
+                display_name = user_map.get(raw_sender, raw_sender) if user_map else raw_sender
+
+                # 동일 발신자 최대 3개 제한
+                if sender_count[display_name] >= 3:
+                    continue
+                sender_count[display_name] += 1
+
+                date_str = doc.created_at.strftime("%Y-%m-%d") if doc.created_at else ""
+                text = (doc.content or "")[:500]
+
+                result.append({
+                    "date": date_str,
+                    "sender": display_name,
+                    "text": text,
+                })
+
+            return result
+        except Exception:
+            logger.exception("_extract_message_samples 실패")
+            return []

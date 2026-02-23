@@ -16,17 +16,17 @@ logger = logging.getLogger(__name__)
 
 # 3중 import fallback
 try:
-    from scripts.knowledge.models import ChannelProfile, KnowledgeDocument
     from scripts.knowledge.channel_profile import ChannelProfileStore
+    from scripts.knowledge.models import ChannelProfile, KnowledgeDocument
     from scripts.knowledge.store import KnowledgeStore
 except ImportError:
     try:
-        from knowledge.models import ChannelProfile, KnowledgeDocument
         from knowledge.channel_profile import ChannelProfileStore
+        from knowledge.models import ChannelProfile, KnowledgeDocument
         from knowledge.store import KnowledgeStore
     except ImportError:
-        from .models import ChannelProfile, KnowledgeDocument
         from .channel_profile import ChannelProfileStore
+        from .models import ChannelProfile, KnowledgeDocument
         from .store import KnowledgeStore
 
 
@@ -560,6 +560,33 @@ class KnowledgeBootstrap:
         if members_data:
             metadata["members"] = members_data.get("members", [])
 
+        # User ID → 이름 매핑 구축
+        user_map = {}
+        for user_id in metadata["members"]:
+            if not user_id or not str(user_id).startswith("U"):
+                continue
+            try:
+                user_data = await asyncio.to_thread(
+                    self._run_subprocess, ["lib.slack", "user", str(user_id), "--json"]
+                )
+                if user_data:
+                    profile = user_data.get("user", user_data).get("profile", {})
+                    display_name = (
+                        profile.get("display_name")
+                        or profile.get("real_name")
+                        or user_data.get("user", user_data).get("real_name")
+                        or str(user_id)
+                    )
+                    if display_name:
+                        user_map[str(user_id)] = display_name
+                await asyncio.sleep(0.5)  # rate limit
+            except Exception as e:
+                logger.warning(f"User ID {user_id} 이름 조회 실패: {e}")
+                continue
+        metadata["user_map"] = user_map
+        if user_map:
+            logger.info(f"User map 구축 완료: {len(user_map)}명")
+
         # 핀된 메시지
         pins_data = await asyncio.to_thread(
             self._run_subprocess, ["lib.slack", "pins", channel_id, "--json"]
@@ -694,7 +721,10 @@ class KnowledgeBootstrap:
             ps = ChannelProfileStore()
             await ps.init_db()
             analyzer = ChannelMasteryAnalyzer(self.store, ps)
-            mastery_context = await analyzer.build_mastery_context(project_id, channel_id)
+            user_map = channel_meta.get("user_map", {})
+            mastery_context = await analyzer.build_mastery_context(
+                project_id, channel_id, user_map=user_map
+            )
             mastery_context["channel_name"] = channel_meta.get("channel_name", channel_id)
             await ps.close()
             print(f"  분석 완료: 키워드 {len(mastery_context.get('top_keywords', []))}개, 의사결정 {len(mastery_context.get('key_decisions', []))}건")
@@ -716,8 +746,9 @@ class KnowledgeBootstrap:
         try:
             from scripts.knowledge.channel_sonnet_profiler import ChannelSonnetProfiler
             profiler = ChannelSonnetProfiler()
-            await profiler.build_profile(channel_id, mastery_context, force=force)
-            print(f"  프로파일 저장 완료")
+            pinned_messages = channel_meta.get("pinned_messages", [])
+            await profiler.build_profile(channel_id, mastery_context, force=force, pinned_messages=pinned_messages)
+            print("  프로파일 저장 완료")
         except Exception as e:
             logger.warning(f"Sonnet 프로파일 생성 실패 (계속): {e}")
 
