@@ -25,7 +25,6 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
@@ -38,9 +37,10 @@ CALENDAR_SCRIPT = SCRIPT_DIR / "calendar_analyzer.py"
 GITHUB_SCRIPT = SCRIPT_DIR / "github_analyzer.py"
 SLACK_SCRIPT = SCRIPT_DIR / "slack_analyzer.py"
 LLM_SCRIPT = SCRIPT_DIR / "llm_analyzer.py"
+WORK_SCRIPT = SCRIPT_DIR / "work_tracker" / "cli.py"
 
 
-def run_script(script_path: Path, args: list = None) -> Optional[dict]:
+def run_script(script_path: Path, args: list = None) -> dict | None:
     """스크립트 실행 및 JSON 결과 파싱"""
     if not script_path.exists():
         print(f"Warning: 스크립트 없음 - {script_path}")
@@ -212,8 +212,24 @@ def analyze_life() -> dict:
     return result
 
 
+def analyze_work() -> dict:
+    """Git 업무 현황 분석 (Work Tracker)"""
+    print("🔨 Git 업무 현황 분석 중...")
+
+    # Step 1: collect today's commits
+    collect_data = run_script(WORK_SCRIPT, ["collect", "--json"])
+
+    # Step 2: get summary
+    summary_data = run_script(WORK_SCRIPT, ["summary", "--json"])
+
+    if not summary_data:
+        return {"commits": 0, "streams": [], "summary": {}}
+
+    return summary_data
+
+
 def format_report(
-    gmail_data: dict, calendar_data: dict, github_data: dict, slack_data: dict, llm_data: dict, life_data: dict = None
+    gmail_data: dict, calendar_data: dict, github_data: dict, slack_data: dict, llm_data: dict, life_data: dict = None, work_data: dict = None
 ) -> str:
     """종합 리포트 포맷팅"""
     today = datetime.now().strftime("%Y-%m-%d (%a)")
@@ -281,7 +297,7 @@ def format_report(
 
     if github_active:
         output.append("")
-        output.append(f"🔥 활발한 프로젝트 (최근 5일)")
+        output.append("🔥 활발한 프로젝트 (최근 5일)")
         for repo in github_active[:5]:
             output.append(
                 f"├── {repo.get('full_name', '')}: {repo.get('commits', 0)} commits, {repo.get('issues', 0)} issues"
@@ -305,6 +321,29 @@ def format_report(
             hours = msg.get("hours_since", 0)
             output.append(f"├── [{msg.get('channel_name', '')}] {msg.get('text', '')[:40]}... - {hours}시간 전")
 
+    # Git 업무 현황 섹션
+    if work_data:
+        work_summary = work_data.get("summary", {})
+        work_commits = work_summary.get("total_commits", 0)
+        work_streams = work_data.get("streams", [])
+
+        if work_commits > 0:
+            output.append("")
+            output.append(f"🔨 Git 업무 현황 ({work_commits} commits)")
+
+            # 프로젝트 배분
+            dist = work_summary.get("project_distribution", {})
+            if dist:
+                parts = [f"{k} {v}%" for k, v in dist.items()]
+                output.append(f"├── 배분: {' / '.join(parts)}")
+
+            # 활성 스트림
+            active = [s for s in work_streams if s.get("status") == "active"]
+            if active:
+                output.append(f"├── 활성 Stream: {len(active)}건")
+                for s in active[:3]:
+                    output.append(f"│   • {s.get('name', '')} ({s.get('duration_days', 0)}일째)")
+
     # 요약
     output.append("")
     output.append("=" * 40)
@@ -324,7 +363,7 @@ def format_report(
     llm_stats = llm_data.get("statistics", {})
     if llm_stats:
         output.append("")
-        output.append(f"🤖 LLM 사용 현황 (최근 7일)")
+        output.append("🤖 LLM 사용 현황 (최근 7일)")
         output.append(f"├── 총 세션: {llm_stats.get('total_sessions', 0)}개")
         output.append(f"├── 총 메시지: {llm_stats.get('message_count', 0)}개")
 
@@ -359,7 +398,7 @@ def format_report(
 
         if tax_upcoming:
             output.append("")
-            output.append(f"💰 세무 일정 (앞으로 30일)")
+            output.append("💰 세무 일정 (앞으로 30일)")
             for tax in tax_upcoming[:3]:
                 output.append(f"├── D-{tax.get('days_until', 0)} {tax.get('name', '')} ({tax.get('date', '')})")
 
@@ -382,12 +421,13 @@ def main():
     parser.add_argument("--slack", action="store_true", help="Slack 분석만")
     parser.add_argument("--llm", action="store_true", help="LLM 세션 분석만")
     parser.add_argument("--life", action="store_true", help="Life Management 분석만 (Phase 5)")
+    parser.add_argument("--work", action="store_true", help="Git 업무 현황 분석")
     parser.add_argument("--all", action="store_true", help="모든 소스 분석 (기본값)")
     parser.add_argument("--json", action="store_true", help="JSON 형식 출력")
     args = parser.parse_args()
 
     # 기본값: 모든 소스 분석
-    if not any([args.gmail, args.calendar, args.github, args.slack, args.llm, args.life]):
+    if not any([args.gmail, args.calendar, args.github, args.slack, args.llm, args.life, args.work]):
         args.all = True
 
     print("=" * 40)
@@ -400,6 +440,7 @@ def main():
     slack_data = {}
     llm_data = {}
     life_data = {}
+    work_data = {}
 
     # 분석 실행
     if args.all or args.gmail:
@@ -420,6 +461,9 @@ def main():
     if args.all or args.life:
         life_data = analyze_life()
 
+    if args.all or args.work:
+        work_data = analyze_work()
+
     # 출력
     if args.json:
         result = {
@@ -430,12 +474,13 @@ def main():
             "slack": slack_data,
             "llm": llm_data,
             "life": life_data,
+            "work": work_data,
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         print(
             "\n"
-            + format_report(gmail_data, calendar_data, github_data, slack_data, llm_data, life_data)
+            + format_report(gmail_data, calendar_data, github_data, slack_data, llm_data, life_data, work_data)
         )
 
 

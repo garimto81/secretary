@@ -32,6 +32,7 @@ PROMPTS_DIR = PROJECT_ROOT / "scripts" / "intelligence" / "prompts"
 # DB 파일
 GATEWAY_DB = DATA_DIR / "gateway.db"
 INTELLIGENCE_DB = DATA_DIR / "intelligence.db"
+WORK_TRACKER_DB = DATA_DIR / "work_tracker.db"
 
 # 데이터 디렉토리
 DRAFTS_DIR = DATA_DIR / "drafts"

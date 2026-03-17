@@ -1,0 +1,62 @@
+{
+  "local_repo_mapping": {
+    "ebs": {"project": "EBS", "category": "기획"},
+    "ebs_reverse": {"project": "EBS", "category": "역공학"},
+    "ebs_reverse_app": {"project": "EBS", "category": "앱 개발"},
+    "ui_overlay": {"project": "EBS", "category": "UI 분석"},
+    "figma": {"project": "EBS", "category": "디자인"},
+    "wsoptv_ott": {"project": "WSOPTV", "category": "OTT"},
+    "wsop_academy": {"project": "WSOPTV", "category": "Academy"},
+    "secretary": {"project": "Secretary", "category": "자동화"},
+    "task_manager": {"project": "Secretary", "category": "태스크"}
+  },
+  "projects": [
+    {
+      "id": "secretary",
+      "name": "Secretary AI",
+      "description": "AI 비서 도구 - Gmail, Calendar, GitHub, Slack 통합 분석 및 일일 업무 현황 리포트 자동 생성",
+      "github_repos": ["garimto81/claude"],
+      "slack_channels": ["C0985UXQN6Q"],
+      "_deprecated_slack_channels_note": "Use config/channels.json for channel-project mapping instead",
+      "gmail_queries": ["subject:(secretary OR daily report OR 리포트)"],
+      "keywords": ["secretary", "비서", "리포트", "일일", "daily", "gateway", "intelligence", "draft"],
+      "contacts": ["U040EUZ6JRY"],
+      "config": {
+        "auto_draft": true,
+        "draft_model": "opus"
+      },
+      "pipeline_config": {
+        "urgent_keywords": ["서버다운", "장애", "에러", "500", "크래시"],
+        "action_keywords": ["배포", "릴리즈", "머지", "리뷰"],
+        "notification_rules": {
+          "toast_enabled": true,
+          "digest_enabled": true
+        },
+        "rate_limit_overrides": {}
+      }
+    },
+    {
+      "id": "wsoptv",
+      "name": "WSOP TV Automation",
+      "description": "WSOP 방송 자동화 - 자막, 편집, 카탈로그 생성",
+      "github_repos": ["garimto81/claude"],
+      "slack_channels": ["_SLACK_CHANNEL_ID_wsoptv"],
+      "gmail_queries": ["subject:(wsop OR wsoptv OR 방송)"],
+      "keywords": ["wsop", "wsoptv", "방송", "자막", "subtitle", "편집", "카탈로그", "catalog"],
+      "contacts": [],
+      "config": {
+        "auto_draft": true,
+        "draft_model": "opus"
+      },
+      "pipeline_config": {
+        "urgent_keywords": ["방송사고", "송출", "라이브"],
+        "action_keywords": ["인코딩", "업로드", "편집완료", "자막완료"],
+        "notification_rules": {
+          "toast_enabled": true,
+          "digest_enabled": true
+        },
+        "rate_limit_overrides": {}
+      }
+    }
+  ]
+}

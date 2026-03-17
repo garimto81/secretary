@@ -351,21 +351,24 @@ W12: ██████████ 48  ↑14%
 | 항목 | 상태 | 비고 |
 |------|------|------|
 | PRD 작성 | 완료 | 현재 문서 |
-| collector.py | 예정 | FR-1 |
-| stream_detector.py | 예정 | FR-2 |
-| metrics.py | 예정 | FR-3 |
-| storage.py | 예정 | DB 스키마 |
-| formatter.py | 예정 | FR-4 |
-| cli.py | 예정 | FR-5 |
-| paths.py 통합 | 예정 | NFR-1 |
-| projects.json 확장 | 예정 | NFR-1 |
-| daily_report.py 통합 | 예정 | NFR-1 |
-| reporter.py 통합 | 예정 | NFR-1 |
-| 단위 테스트 | 예정 | - |
-| E2E 테스트 | 예정 | - |
+| collector.py | 완료 | FR-1 (60 tests) |
+| stream_detector.py | 완료 (AI 미통합) | FR-2 — branch/scope/path 3가지 구현, keyword(Ollama) 미구현 |
+| metrics.py | 완료 | FR-3 (34 tests) |
+| storage.py | 완료 | DB 스키마 5테이블 (23 tests) |
+| formatter.py | 완료 | FR-4 (58 tests) |
+| cli.py | 완료 | FR-5 (35 tests) |
+| models.py | 완료 | @dataclass 5개 + Enum 3개 (32 tests) |
+| paths.py 통합 | 완료 | NFR-1 WORK_TRACKER_DB 추가 |
+| projects.json 확장 | 완료 | NFR-1 local_repo_mapping 추가 |
+| daily_report.py 통합 | 완료 | NFR-1 --work 옵션 + analyze_work() |
+| reporter.py 통합 | 완료 | NFR-1 send_work_summary() 추가 |
+| 단위 테스트 | 완료 | 294 tests all pass (2.75s) |
+| E2E 테스트 | 예정 | 실제 git 데이터 파이프라인 검증 |
+| NFR-2 AI 통합 | 예정 | Ollama keyword 감지 + 하이라이트 생성 |
 
 ## Changelog
 
 | 날짜 | 버전 | 변경 내용 | 변경 유형 | 결정 근거 |
 |------|------|-----------|----------|----------|
+| 2026-03-17 | v1.1 | 전체 구현 완료 (AI 미통합) — 7개 모듈 + 4개 통합 파일, 294 tests | PRODUCT | Architect 검증 APPROVED (88% match rate) |
 | 2026-03-17 | v1.0 | 최초 작성 | - | Q1 보고서 Work Stream 기간 불일치 9건 해결 필요 |
