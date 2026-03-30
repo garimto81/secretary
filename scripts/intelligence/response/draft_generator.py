@@ -8,12 +8,10 @@ ClaudeCodeDraftGenerator: [DEPRECATED] claude -p subprocess 방식 (테스트 �
 import asyncio
 import shutil
 import time
-from pathlib import Path
-from typing import Optional, Dict, Any
 from collections import deque
+from pathlib import Path
 
 import httpx
-
 
 PROMPT_TEMPLATE_PATH = Path(r"C:\claude\secretary\scripts\intelligence\prompts\draft_prompt.txt")
 

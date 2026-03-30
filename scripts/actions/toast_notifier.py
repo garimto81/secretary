@@ -14,7 +14,6 @@ Examples:
 import argparse
 import json
 import sys
-from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
@@ -34,7 +33,7 @@ def send_notification(
     message: str,
     app_name: str = "Secretary AI",
     duration: str = "short",
-    icon_path: Optional[str] = None,
+    icon_path: str | None = None,
 ) -> bool:
     """
     Windows Toast 알림 전송

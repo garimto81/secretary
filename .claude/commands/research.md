@@ -320,7 +320,7 @@ Options:
 ## Related
 
 - `/parallel research` - 병렬 리서치 에이전트
-- `/work` - 전체 워크플로우 실행
+- `/auto` - 전체 워크플로우 실행
 
 ---
 

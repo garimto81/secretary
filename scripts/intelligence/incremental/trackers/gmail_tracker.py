@@ -8,10 +8,9 @@ historyId 만료 시 messages.list fallback.
 import asyncio
 import hashlib
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
 
-from ..analysis_state import AnalysisStateManager
 from ...context_store import IntelligenceStorage
+from ..analysis_state import AnalysisStateManager
 
 
 class GmailTracker:
@@ -30,7 +29,7 @@ class GmailTracker:
     async def fetch_new(
         self,
         project_id: str,
-        gmail_queries: List[str],
+        gmail_queries: list[str],
     ) -> int:
         """
         프로젝트 관련 Gmail 메시지 증분 수집
@@ -52,7 +51,8 @@ class GmailTracker:
         if last_history_id:
             count = await self._fetch_via_history(project_id, last_history_id)
         else:
-            count = await self._fetch_via_list(project_id, gmail_queries)
+            # 최초 수집: 날짜 필터 없이 전체 수집
+            count = await self._fetch_via_list(project_id, gmail_queries, initial=True)
 
         return count
 
@@ -97,18 +97,28 @@ class GmailTracker:
 
         return count
 
-    async def _fetch_via_list(self, project_id: str, queries: List[str]) -> int:
-        """messages.list fallback"""
+    async def _fetch_via_list(self, project_id: str, queries: list[str], initial: bool = False) -> int:
+        """messages.list fallback
+
+        Args:
+            initial: True 시 날짜 필터 없이 전체 수집 (limit=500).
+                     False 시 최근 7일 + 20건 제한 (기존 동작).
+        """
         query = " OR ".join(queries) if queries else "is:inbox"
 
-        # Add date limiting to 7 days ago
-        seven_days_ago_epoch = int((datetime.now() - timedelta(days=7)).timestamp())
-        query = f"after:{seven_days_ago_epoch} {query}"
+        if initial:
+            # 최초 수집: 날짜 필터 없이 전체 매칭 메일 수집
+            fetch_limit = 500
+        else:
+            # 증분 수집: 최근 7일만
+            seven_days_ago_epoch = int((datetime.now() - timedelta(days=7)).timestamp())
+            query = f"after:{seven_days_ago_epoch} {query}"
+            fetch_limit = 20
 
         emails = await asyncio.to_thread(
             self._client.list_emails,
             query,
-            20,
+            fetch_limit,
         )
 
         count = 0

@@ -59,14 +59,25 @@ class GitCollector:
     def discover_repos(self) -> list[Path]:
         """C:\\claude\\*\\.git glob → 유효 레포 경로 리스트
 
+        base_dir 자체가 git 레포이면 포함한다.
         base_dir 직접 자식 디렉토리 중 .git이 존재하는 것만 반환한다.
         재귀 탐색하지 않는다.
         """
         repos: list[Path] = []
+        # base_dir 자체가 git 레포이면 포함
+        if (self.base_dir / ".git").exists():
+            repos.append(self.base_dir)
         for git_dir in self.base_dir.glob("*/.git"):
             parent = git_dir.parent
-            if parent.is_dir():
+            if parent.is_dir() and parent != self.base_dir:
                 repos.append(parent)
+        # 매핑 기반 보충 — 매핑에 있지만 glob에서 못 찾은 레포
+        found_names = {r.name for r in repos}
+        for repo_name in self._repo_mapping:
+            if repo_name not in found_names:
+                candidate = self.base_dir / repo_name
+                if candidate.is_dir() and (candidate / ".git").exists():
+                    repos.append(candidate)
         return repos
 
     # ------------------------------------------------------------------

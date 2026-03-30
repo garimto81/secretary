@@ -5,12 +5,11 @@ DraftStore - 응답 초안 저장 및 관리
 """
 
 import sys
-from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any
+from pathlib import Path
+from typing import Any
 
 from ..context_store import IntelligenceStorage
-
 
 DEFAULT_DRAFTS_DIR = Path(r"C:\claude\secretary\data\drafts")
 
@@ -18,7 +17,7 @@ DEFAULT_DRAFTS_DIR = Path(r"C:\claude\secretary\data\drafts")
 class DraftStore:
     """응답 초안 저장소"""
 
-    def __init__(self, storage: IntelligenceStorage, drafts_dir: Optional[Path] = None):
+    def __init__(self, storage: IntelligenceStorage, drafts_dir: Path | None = None):
         self.storage = storage
         self.drafts_dir = drafts_dir or DEFAULT_DRAFTS_DIR
         self.drafts_dir.mkdir(parents=True, exist_ok=True)
@@ -27,14 +26,14 @@ class DraftStore:
         self,
         project_id: str,
         source_channel: str,
-        source_message_id: Optional[str],
+        source_message_id: str | None,
         sender_id: str,
-        sender_name: Optional[str],
+        sender_name: str | None,
         original_text: str,
         draft_text: str,
         match_confidence: float,
         match_tier: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Draft 저장 (파일 + DB + Toast)
 

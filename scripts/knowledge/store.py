@@ -7,10 +7,11 @@ Phase 1 MVP: 전문검색, 메타데이터 필터, 스레드/발신자 조회
 import json
 import re
 import sys
-import aiosqlite
-from pathlib import Path
-from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import aiosqlite
 
 # 스크립트 직접 실행 시 경로 추가
 if __name__ == "__main__":
@@ -120,7 +121,7 @@ def _sanitize_fts_query(query: str) -> str:
     return " ".join(safe_words)
 
 
-def _row_to_document(row: Dict[str, Any]) -> KnowledgeDocument:
+def _row_to_document(row: dict[str, Any]) -> KnowledgeDocument:
     """DB 행을 KnowledgeDocument로 변환"""
     data = dict(row)
 
@@ -171,9 +172,9 @@ class KnowledgeStore:
             results = await store.search("배포 일정", project_id="secretary")
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
-        self._connection: Optional[aiosqlite.Connection] = None
+        self._connection: aiosqlite.Connection | None = None
 
     async def __aenter__(self):
         await self.init_db()
@@ -259,11 +260,11 @@ class KnowledgeStore:
         self,
         query: str,
         project_id: str,
-        source: Optional[str] = None,
+        source: str | None = None,
         limit: int = 10,
-        date_from: Optional[datetime] = None,
-        date_to: Optional[datetime] = None,
-    ) -> List[SearchResult]:
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> list[SearchResult]:
         """FTS5 전문검색 + 메타데이터 필터
 
         Args:
@@ -328,7 +329,7 @@ class KnowledgeStore:
         self,
         thread_id: str,
         project_id: str,
-    ) -> List[KnowledgeDocument]:
+    ) -> list[KnowledgeDocument]:
         """스레드별 문서 조회
 
         Args:
@@ -354,7 +355,7 @@ class KnowledgeStore:
         sender_name: str,
         project_id: str,
         limit: int = 20,
-    ) -> List[KnowledgeDocument]:
+    ) -> list[KnowledgeDocument]:
         """발신자별 문서 조회
 
         Args:
@@ -384,8 +385,8 @@ class KnowledgeStore:
         self,
         project_id: str,
         limit: int = 20,
-        source: Optional[str] = None,
-    ) -> List[KnowledgeDocument]:
+        source: str | None = None,
+    ) -> list[KnowledgeDocument]:
         """최근 문서 조회
 
         Args:
@@ -414,8 +415,8 @@ class KnowledgeStore:
 
     async def get_stats(
         self,
-        project_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
         """프로젝트별 문서 통계
 
         Args:
@@ -426,7 +427,7 @@ class KnowledgeStore:
         """
         self._ensure_connected()
 
-        stats: Dict[str, Any] = {}
+        stats: dict[str, Any] = {}
 
         # 총 문서 수
         if project_id:

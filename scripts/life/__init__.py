@@ -6,8 +6,8 @@ Components:
 - event_manager: Life event management and reminders
 """
 
-from scripts.life.lunar_converter import lunar_to_solar, solar_to_lunar
 from scripts.life.event_manager import LifeEvent, LifeEventManager
+from scripts.life.lunar_converter import lunar_to_solar, solar_to_lunar
 
 __all__ = [
     "lunar_to_solar",

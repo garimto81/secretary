@@ -1,8 +1,7 @@
 ---
 name: update-slack-list
 description: >
-  Slack Lists 업체 관리 시스템 업데이트. 업체 추가/수정/삭제, 상태 변경, 채널 동기화.
-  "slack list", "slacklist", "업체 리스트", "vendor list" 요청 시 사용.
+  Update Slack Lists vendor management — add/modify/delete vendors and status changes. Triggers on "slack list", "vendor", "업체 관리", "벤더". Use when managing vendor entries in Slack Lists or tracking procurement records.
 version: 2.0.0
 triggers:
   keywords:
@@ -21,7 +20,6 @@ triggers:
   file_patterns:
     - "**/slack_lists.json"
     - "**/lists_collector.py"
-model_preference: sonnet
 auto_trigger: true
 ---
 

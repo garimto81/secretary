@@ -14,20 +14,19 @@ Tier 3: Sender Match (confidence 0.5)
 """
 
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any
 
-from ..project_registry import ProjectRegistry
 from ..context_store import IntelligenceStorage
+from ..project_registry import ProjectRegistry
 
 
 @dataclass
 class MatchResult:
     """매칭 결과"""
     matched: bool
-    project_id: Optional[str] = None
-    project_name: Optional[str] = None
+    project_id: str | None = None
+    project_name: str | None = None
     confidence: float = 0.0
-    tier: Optional[str] = None
+    tier: str | None = None
     reason: str = ""
 
 
@@ -90,9 +89,9 @@ class ContextMatcher:
         channel_id: str,
         text: str,
         sender_id: str,
-        sender_name: Optional[str],
+        sender_name: str | None,
         source_channel: str,
-        source_message_id: Optional[str] = None,
+        source_message_id: str | None = None,
     ) -> MatchResult:
         """
         매칭 시도 후, 실패 시 pending_match로 DB 저장

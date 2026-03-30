@@ -52,7 +52,7 @@
 ## 📋 Checklist: {project}
 
 ### 🔄 In Progress
-- [TASK-001] 작업 제목 (python-dev)
+- [TASK-001] 작업 제목 (executor)
 
 ### 📝 Pending (3)
 - [TASK-002] 다음 작업 (high)
@@ -119,20 +119,20 @@ Total: 9 | Done: 5 | Progress: 1 | Pending: 3
 
 **예시:**
 ```
-/checklist assign TASK-001 python-dev
-/checklist assign TASK-002 test-engineer
+/checklist assign TASK-001 executor
+/checklist assign TASK-002 qa-tester
 ```
 
 **에이전트 매핑:**
 | 키워드 | 에이전트 |
 |--------|----------|
-| python | python-dev |
-| ts, typescript | typescript-dev |
-| test | test-engineer |
+| python | executor |
+| ts, typescript | executor |
+| test | qa-tester |
 | review | code-reviewer |
-| docs | docs-writer |
-| debug | debugger |
-| security | security-auditor |
+| docs | writer |
+| debug | architect |
+| security | security-reviewer |
 | db, database | database-specialist |
 
 ---
@@ -174,7 +174,7 @@ current_task:
   id: "TASK-001"
   title: "작업 제목"
   status: "in_progress"
-  agent: "python-dev"
+  agent: "executor"
 
 pending:
   - id: "TASK-002"
@@ -184,14 +184,14 @@ pending:
 completed:
   - id: "TASK-000"
     title: "완료 작업"
-    agent: "python-dev"
+    agent: "executor"
     result:
       success: true
       files_changed: ["src/main.py"]
 
 agent_logs:
   - timestamp: "2025-12-19T15:00:00"
-    agent: "python-dev"
+    agent: "executor"
     task_id: "TASK-001"
     action: "작업 완료"
     status: "success"

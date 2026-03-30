@@ -8,12 +8,12 @@ Note:
     storage.py는 더 이상 자체 NormalizedMessage를 정의하지 않습니다.
 """
 
-import pytest
-import asyncio
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
+
+import pytest
+from scripts.gateway.models import ChannelType, MessageType, NormalizedMessage, Priority
 from scripts.gateway.storage import UnifiedStorage
-from scripts.gateway.models import NormalizedMessage, ChannelType, MessageType, Priority
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def sample_message():
     """샘플 메시지 fixture (models.NormalizedMessage 사용)"""
     return NormalizedMessage(
         id="test_msg_001",
-        channel=ChannelType.KAKAO,
+        channel=ChannelType.SLACK,
         channel_id="room_123",
         sender_id="user_456",
         sender_name="테스터",
@@ -69,7 +69,7 @@ async def test_get_recent_messages(temp_storage):
         messages = [
             NormalizedMessage(
                 id=f"msg_{i}",
-                channel=ChannelType.KAKAO if i % 2 == 0 else ChannelType.EMAIL,
+                channel=ChannelType.SLACK if i % 2 == 0 else ChannelType.EMAIL,
                 channel_id="room_1",
                 sender_id=f"user_{i}",
                 sender_name=f"User {i}",
@@ -88,9 +88,9 @@ async def test_get_recent_messages(temp_storage):
         assert recent_all[0].id == "msg_0"  # 최신순
 
         # 채널 필터 (DB에는 문자열로 저장됨)
-        recent_kakao = await temp_storage.get_recent_messages(channel="kakao", limit=10)
-        assert all(msg.channel == ChannelType.KAKAO for msg in recent_kakao)
-        assert len(recent_kakao) == 5  # 0, 2, 4, 6, 8
+        recent_slack = await temp_storage.get_recent_messages(channel="slack", limit=10)
+        assert all(msg.channel == ChannelType.SLACK for msg in recent_slack)
+        assert len(recent_slack) == 5  # 0, 2, 4, 6, 8
 
         # 시간 필터
         since = now - timedelta(hours=5)
@@ -153,7 +153,7 @@ async def test_get_stats(temp_storage):
         kakao_messages = [
             NormalizedMessage(
                 id=f"kakao_{i}",
-                channel=ChannelType.KAKAO,
+                channel=ChannelType.SLACK,
                 channel_id="room_1",
                 sender_id=f"user_{i}",
                 sender_name=f"Kakao User {i}",
@@ -186,9 +186,9 @@ async def test_get_stats(temp_storage):
         # 통계 조회
         stats = await temp_storage.get_stats()
         assert stats['total_messages'] == 8
-        assert stats['by_channel']['kakao'] == 5
+        assert stats['by_channel']['slack'] == 5
         assert stats['by_channel']['email'] == 3
-        assert stats['unprocessed'] == 6  # kakao 5개 + gmail 미처리 1개
+        assert stats['unprocessed'] == 6  # slack 5개 + gmail 미처리 1개
 
 
 @pytest.mark.asyncio
@@ -222,7 +222,7 @@ async def test_message_with_media(temp_storage):
     async with temp_storage:
         msg = NormalizedMessage(
             id="media_msg",
-            channel=ChannelType.KAKAO,
+            channel=ChannelType.SLACK,
             channel_id="room_1",
             sender_id="user_1",
             sender_name="Media User",

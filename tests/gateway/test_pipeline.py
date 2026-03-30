@@ -2,7 +2,6 @@
 Pipeline 테스트
 """
 
-import asyncio
 import sys
 import tempfile
 from datetime import datetime
@@ -13,9 +12,9 @@ import pytest
 # 프로젝트 루트 경로 추가
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from scripts.gateway.models import NormalizedMessage, ChannelType, MessageType, Priority
-from scripts.gateway.storage import UnifiedStorage
+from scripts.gateway.models import ChannelType, NormalizedMessage
 from scripts.gateway.pipeline import MessagePipeline, PipelineResult
+from scripts.gateway.storage import UnifiedStorage
 
 
 @pytest.fixture
@@ -48,7 +47,7 @@ class TestPriority:
         try:
             msg = NormalizedMessage(
                 id="test-urgent-1",
-                channel=ChannelType.KAKAO,
+                channel=ChannelType.SLACK,
                 channel_id="chat-001",
                 sender_id="user-001",
                 text="긴급! 바로 확인해주세요",
@@ -121,7 +120,7 @@ class TestPriority:
         try:
             msg = NormalizedMessage(
                 id="test-normal-1",
-                channel=ChannelType.KAKAO,
+                channel=ChannelType.SLACK,
                 channel_id="chat-001",
                 sender_id="user-001",
                 text="안녕하세요. 점심 뭐 먹을까요?",
@@ -143,7 +142,7 @@ class TestActionDetection:
         try:
             msg = NormalizedMessage(
                 id="test-action-1",
-                channel=ChannelType.KAKAO,
+                channel=ChannelType.SLACK,
                 channel_id="chat-001",
                 sender_id="user-001",
                 text="보고서 검토 부탁드립니다",
@@ -151,7 +150,7 @@ class TestActionDetection:
 
             result = await pipeline.process(msg)
             assert result.has_action == True
-            assert any("부탁" in a for a in result.actions)
+            assert any("검토" in a for a in result.actions)
         finally:
             await storage.close()
 
@@ -204,7 +203,7 @@ class TestStorage:
         try:
             msg = NormalizedMessage(
                 id="test-save-1",
-                channel=ChannelType.KAKAO,
+                channel=ChannelType.SLACK,
                 channel_id="chat-001",
                 sender_id="user-001",
                 text="테스트 메시지",
@@ -225,7 +224,7 @@ class TestStorage:
             for i in range(5):
                 msg = NormalizedMessage(
                     id=f"test-multi-{i}",
-                    channel=ChannelType.KAKAO,
+                    channel=ChannelType.SLACK,
                     channel_id="chat-001",
                     sender_id="user-001",
                     text=f"테스트 메시지 {i}",
@@ -263,19 +262,20 @@ class TestCustomHandler:
 
     @pytest.mark.asyncio
     async def test_custom_handler_called(self, storage, pipeline):
-        """커스텀 핸들러 호출 확인"""
+        """커스텀 핸들러 호출 확인 (EnrichedMessage 전달)"""
         await storage.connect()
         try:
             handler_called = []
 
-            async def custom_handler(msg, result):
-                handler_called.append(msg.id)
+            async def custom_handler(enriched, result):
+                # Pipeline이 이제 EnrichedMessage를 전달함
+                handler_called.append(enriched.original.id)
 
             pipeline.add_handler(custom_handler)
 
             msg = NormalizedMessage(
                 id="test-handler-1",
-                channel=ChannelType.KAKAO,
+                channel=ChannelType.SLACK,
                 channel_id="chat-001",
                 sender_id="user-001",
                 text="테스트",

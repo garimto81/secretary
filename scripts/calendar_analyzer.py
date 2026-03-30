@@ -16,11 +16,9 @@ Output:
 
 import argparse
 import json
-import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
@@ -28,9 +26,9 @@ if sys.platform == "win32":
 
 # Google API imports
 try:
+    from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
 except ImportError:
     print("Error: Google API 라이브러리가 설치되지 않았습니다.")
@@ -245,7 +243,7 @@ def main():
     service = build("calendar", "v3", credentials=creds)
 
     # 시간 범위 설정
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start_time = now
 
     if args.today:

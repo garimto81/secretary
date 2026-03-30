@@ -7,6 +7,7 @@ to generate daily reports and execute automation actions.
 
 __version__ = "2.0.0"
 
+from secretary.cli.main import cli
 from secretary.core.config import Config
 from secretary.core.events import EventBus
 from secretary.core.exceptions import (
@@ -16,7 +17,6 @@ from secretary.core.exceptions import (
     RateLimitError,
     SecretaryError,
 )
-from secretary.cli.main import cli
 
 __all__ = [
     "__version__",

@@ -1,10 +1,10 @@
 """ChannelProfileStore - 채널 메타데이터 SQLite 저장/조회"""
 
 import json
-import aiosqlite
-from pathlib import Path
-from typing import Optional
 from datetime import datetime
+from pathlib import Path
+
+import aiosqlite
 
 # 3중 import fallback
 try:
@@ -40,9 +40,9 @@ class ChannelProfileStore:
     기존 knowledge.db에 channel_profiles 테이블을 추가합니다.
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
-        self._connection: Optional[aiosqlite.Connection] = None
+        self._connection: aiosqlite.Connection | None = None
 
     async def init_db(self) -> None:
         """DB 연결 및 channel_profiles 테이블 생성"""
@@ -99,7 +99,7 @@ class ChannelProfileStore:
         )
         await self._connection.commit()
 
-    async def get(self, channel_id: str) -> Optional[ChannelProfile]:
+    async def get(self, channel_id: str) -> ChannelProfile | None:
         """채널 프로파일 조회"""
         if not self._connection:
             raise RuntimeError("ChannelProfileStore not connected. Call init_db() first.")

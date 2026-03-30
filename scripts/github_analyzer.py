@@ -18,9 +18,8 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
@@ -63,7 +62,7 @@ def get_headers(token: str) -> dict:
     }
 
 
-def api_get(endpoint: str, token: str, params: dict = None) -> Optional[dict | list]:
+def api_get(endpoint: str, token: str, params: dict = None) -> dict | list | None:
     """GitHub API GET 요청"""
     url = f"{BASE_URL}{endpoint}"
     headers = get_headers(token)
@@ -139,11 +138,11 @@ def days_since(date_str: str) -> int:
 def analyze_activity(token: str, days: int = 5) -> dict:
     """GitHub 활동 분석"""
     since = (
-        (datetime.now(timezone.utc) - timedelta(days=days))
+        (datetime.now(UTC) - timedelta(days=days))
         .isoformat()
         .replace("+00:00", "Z")
     )
-    since_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
+    since_date = (datetime.now(UTC) - timedelta(days=days)).strftime(
         "%Y-%m-%d"
     )
 

@@ -643,10 +643,13 @@ class ProjectIntelligenceHandler:
     async def _web_search(self, query: str, max_results: int = 3) -> str:
         """DuckDuckGo로 웹 검색 (뉴스 키워드면 뉴스 검색)"""
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS  # 신버전 (duckduckgo_search → ddgs)
         except ImportError:
-            logger.warning("duckduckgo-search 미설치, 웹 검색 스킵")
-            return ""
+            try:
+                from duckduckgo_search import DDGS  # 구버전 fallback
+            except ImportError:
+                logger.warning("ddgs/duckduckgo-search 미설치, 웹 검색 스킵")
+                return ""
         try:
             is_news = any(kw in query.lower() for kw in self._NEWS_KEYWORDS)
             def _search():

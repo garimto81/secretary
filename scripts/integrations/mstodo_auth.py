@@ -16,10 +16,9 @@ import json
 import sys
 import webbrowser
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 # Windows console UTF-8
 if sys.platform == "win32":
@@ -54,8 +53,8 @@ SCOPES = [
 class AuthCallbackHandler(BaseHTTPRequestHandler):
     """OAuth callback handler for localhost redirect"""
 
-    auth_code: Optional[str] = None
-    error: Optional[str] = None
+    auth_code: str | None = None
+    error: str | None = None
 
     def do_GET(self):
         """Handle OAuth callback GET request"""
@@ -111,15 +110,15 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
         pass
 
 
-def load_token() -> Optional[dict]:
+def load_token() -> dict | None:
     """Load token from file"""
     if not TOKEN_FILE.exists():
         return None
 
     try:
-        with open(TOKEN_FILE, "r", encoding="utf-8") as f:
+        with open(TOKEN_FILE, encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return None
 
 
@@ -150,7 +149,7 @@ def create_msal_app() -> msal.PublicClientApplication:
     )
 
 
-def acquire_token_interactive() -> Optional[dict]:
+def acquire_token_interactive() -> dict | None:
     """
     Acquire token via browser OAuth flow
 
@@ -167,7 +166,7 @@ def acquire_token_interactive() -> Optional[dict]:
         redirect_uri=REDIRECT_URI,
     )
 
-    print(f"Opening browser for Microsoft login...")
+    print("Opening browser for Microsoft login...")
     print(f"If browser doesn't open, visit:\n{auth_url}\n")
 
     # Open browser
@@ -216,7 +215,7 @@ def acquire_token_interactive() -> Optional[dict]:
     return result
 
 
-def acquire_token_silent() -> Optional[dict]:
+def acquire_token_silent() -> dict | None:
     """
     Acquire token silently using cached refresh token
 
@@ -247,7 +246,7 @@ def acquire_token_silent() -> Optional[dict]:
     return result
 
 
-def get_access_token() -> Optional[str]:
+def get_access_token() -> str | None:
     """
     Get valid access token (refresh if needed)
 
@@ -324,7 +323,7 @@ def status() -> None:
         print(f"Token file: {TOKEN_FILE} (not found)")
         return
 
-    print(f"Status: Logged in")
+    print("Status: Logged in")
     print(f"Token file: {TOKEN_FILE}")
     print(f"Saved at: {token.get('saved_at', 'Unknown')}")
     print(f"Scopes: {', '.join(token.get('scope', []))}")

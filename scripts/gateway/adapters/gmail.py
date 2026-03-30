@@ -12,22 +12,25 @@ Features:
 
 import asyncio
 import base64
-from email.mime.text import MIMEText
 import json
+import logging
+from collections.abc import AsyncIterator
 from datetime import datetime
+from email.mime.text import MIMEText
 from pathlib import Path
-from typing import AsyncIterator, Optional
+
+logger = logging.getLogger(__name__)
 
 # 상대/절대 import 모두 지원
 try:
-    from scripts.gateway.models import NormalizedMessage, ChannelType, MessageType
     from scripts.gateway.adapters.base import ChannelAdapter, SendResult
+    from scripts.gateway.models import ChannelType, MessageType, NormalizedMessage
 except ImportError:
     try:
-        from gateway.models import NormalizedMessage, ChannelType, MessageType
         from gateway.adapters.base import ChannelAdapter, SendResult
+        from gateway.models import ChannelType, MessageType, NormalizedMessage
     except ImportError:
-        from ..models import NormalizedMessage, ChannelType, MessageType
+        from ..models import ChannelType, MessageType, NormalizedMessage
         from .base import ChannelAdapter, SendResult
 
 
@@ -50,13 +53,14 @@ class GmailAdapter(ChannelAdapter):
         self.channel_type = ChannelType.EMAIL
         self._client = None
         self._polling_interval: int = config.get("polling_interval", 60)
-        self._last_history_id: Optional[str] = None
+        self._last_history_id: str | None = None
         self._seen_ids: set = set()
         self._max_seen: int = 5000
+        self._start_time: datetime | None = None
 
         # Deprecated config 경고
         if "label_filter" in config:
-            print(f"[GmailAdapter] Warning: 'label_filter' config is deprecated. All labels are now scanned automatically (excluding SPAM/TRASH).")
+            print("[GmailAdapter] Warning: 'label_filter' config is deprecated. All labels are now scanned automatically (excluding SPAM/TRASH).")
 
     async def connect(self) -> bool:
         """Gmail 연결 (lib.gmail 사용)"""
@@ -69,6 +73,7 @@ class GmailAdapter(ChannelAdapter):
             email = profile.get("emailAddress", "unknown")
 
             self._connected = True
+            self._start_time = datetime.now()
             print(f"[GmailAdapter] 연결 성공 ({email})")
             return True
 
@@ -225,7 +230,12 @@ class GmailAdapter(ChannelAdapter):
                     }, ensure_ascii=False),
                 ))
             except Exception as e:
-                print(f"[GmailAdapter] 메시지 조회 실패 ({msg_id}): {e}")
+                error_str = str(e)
+                if "404" in error_str or "notFound" in error_str:
+                    self._seen_ids.add(msg_id)
+                    logger.warning(f"[GmailAdapter] 메시지 없음(삭제됨) - 건너뜀: {msg_id}")
+                else:
+                    logger.error(f"[GmailAdapter] 메시지 조회 실패 ({msg_id}): {e}")
 
         # seen_ids 크기 제한
         if len(self._seen_ids) > self._max_seen:
@@ -254,6 +264,10 @@ class GmailAdapter(ChannelAdapter):
             normalized = []
             for email in emails:
                 if email.id in self._seen_ids:
+                    continue
+                # 서버 시작 이전 메시지는 seen으로 마킹만 하고 무시
+                if self._start_time and email.date and email.date < self._start_time:
+                    self._seen_ids.add(email.id)
                     continue
                 self._seen_ids.add(email.id)
 
@@ -295,7 +309,7 @@ class GmailAdapter(ChannelAdapter):
             return "unknown"
 
         # 사용자 정의 라벨 우선 (대문자가 아닌 것)
-        user_labels = sorted([l for l in meaningful if not l.isupper()])
+        user_labels = sorted([lbl for lbl in meaningful if not lbl.isupper()])
         if user_labels:
             return user_labels[0].lower()
 

@@ -10,10 +10,11 @@ Note:
 
 import json
 import sys
-import aiosqlite
-from pathlib import Path
-from typing import List, Optional, Dict, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import aiosqlite
 
 # 스크립트 직접 실행 시 경로 추가
 if __name__ == "__main__":
@@ -24,12 +25,12 @@ if __name__ == "__main__":
 
 # models.py의 NormalizedMessage 사용 (단일 정의)
 try:
-    from scripts.gateway.models import NormalizedMessage, ChannelType, MessageType, Priority
+    from scripts.gateway.models import ChannelType, MessageType, NormalizedMessage, Priority
 except ImportError:
     try:
-        from gateway.models import NormalizedMessage, ChannelType, MessageType, Priority
+        from gateway.models import ChannelType, MessageType, NormalizedMessage, Priority
     except ImportError:
-        from .models import NormalizedMessage, ChannelType, MessageType, Priority
+        from .models import ChannelType, MessageType, NormalizedMessage, Priority
 
 # 기본 DB 경로
 DEFAULT_DB_PATH = Path(r"C:\claude\secretary\data\gateway.db")
@@ -63,17 +64,9 @@ CREATE INDEX IF NOT EXISTS idx_messages_processed ON messages(processed_at);
 """
 
 
-def _message_to_db_dict(message: NormalizedMessage, received_at: Optional[datetime] = None) -> Dict[str, Any]:
-    """
-    NormalizedMessage를 DB 저장용 딕셔너리로 변환
-
-    Args:
-        message: 변환할 메시지
-        received_at: 수신 시각 (None이면 현재 시각)
-
-    Returns:
-        DB 저장용 딕셔너리
-    """
+def _message_to_db_dict(message: NormalizedMessage, received_at: datetime | None = None,
+                        project_id: str | None = None) -> dict[str, Any]:
+    """NormalizedMessage를 DB 저장용 딕셔너리로 변환"""
     data = {
         'id': message.id,
         'channel': message.channel.value if isinstance(message.channel, ChannelType) else message.channel,
@@ -90,13 +83,14 @@ def _message_to_db_dict(message: NormalizedMessage, received_at: Optional[dateti
         'raw_json': message.raw_json,
         'priority': message.priority.value if isinstance(message.priority, Priority) else message.priority,
         'has_action': message.has_action,
+        'project_id': project_id or message.project_id,
         'processed_at': None,
         'received_at': (received_at or datetime.now()).isoformat(),
     }
     return data
 
 
-def _db_row_to_message(row: Dict[str, Any]) -> NormalizedMessage:
+def _db_row_to_message(row: dict[str, Any]) -> NormalizedMessage:
     """
     DB 행을 NormalizedMessage로 변환
 
@@ -156,6 +150,7 @@ def _db_row_to_message(row: Dict[str, Any]) -> NormalizedMessage:
         raw_json=data.get('raw_json'),
         priority=priority,
         has_action=bool(data.get('has_action', False)),
+        project_id=data.get('project_id'),
     )
 
 
@@ -174,9 +169,9 @@ class UnifiedStorage:
             recent = await storage.get_recent_messages(channel='kakao', limit=10)
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
-        self._connection: Optional[aiosqlite.Connection] = None
+        self._connection: aiosqlite.Connection | None = None
 
     async def __aenter__(self):
         await self.connect()
@@ -198,27 +193,55 @@ class UnifiedStorage:
         await self._connection.executescript(SCHEMA)
         await self._connection.commit()
 
+        # 마이그레이션
+        await self._migrate_enrichments_column()
+        await self._migrate_project_id_column()
+
+    async def _migrate_enrichments_column(self) -> None:
+        """enrichments 컬럼 추가 (멱등)"""
+        try:
+            await self._connection.execute(
+                "ALTER TABLE messages ADD COLUMN enrichments TEXT"
+            )
+            await self._connection.commit()
+        except Exception as e:
+            if "duplicate column" in str(e).lower():
+                pass
+            else:
+                raise
+
+    async def _migrate_project_id_column(self) -> None:
+        """project_id 컬럼 + 인덱스 추가 (멱등)"""
+        try:
+            await self._connection.execute(
+                "ALTER TABLE messages ADD COLUMN project_id TEXT"
+            )
+            await self._connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_project_id ON messages(project_id)"
+            )
+            await self._connection.commit()
+        except Exception as e:
+            if "duplicate column" in str(e).lower():
+                pass
+            else:
+                raise
+
     async def close(self) -> None:
         """DB 연결 종료"""
         if self._connection:
-            await self._connection.close()
+            try:
+                await self._connection.close()
+            except Exception:
+                pass
             self._connection = None
 
-    async def save_message(self, message: NormalizedMessage, received_at: Optional[datetime] = None) -> str:
-        """
-        메시지 저장
-
-        Args:
-            message: 저장할 메시지 (models.NormalizedMessage)
-            received_at: 수신 시각 (None이면 현재 시각)
-
-        Returns:
-            저장된 메시지 ID
-        """
+    async def save_message(self, message: NormalizedMessage, received_at: datetime | None = None,
+                           project_id: str | None = None) -> str:
+        """메시지 저장 (project_id 포함)"""
         if not self._connection:
             raise RuntimeError("Storage not connected. Use 'async with' or call connect() first.")
 
-        data = _message_to_db_dict(message, received_at)
+        data = _message_to_db_dict(message, received_at, project_id=project_id)
         columns = ', '.join(data.keys())
         placeholders = ', '.join(['?' for _ in data])
 
@@ -228,7 +251,7 @@ class UnifiedStorage:
 
         return message.id
 
-    async def get_message(self, message_id: str) -> Optional[NormalizedMessage]:
+    async def get_message(self, message_id: str) -> NormalizedMessage | None:
         """
         메시지 조회
 
@@ -251,21 +274,12 @@ class UnifiedStorage:
 
     async def get_recent_messages(
         self,
-        channel: Optional[str] = None,
+        channel: str | None = None,
         limit: int = 50,
-        since: Optional[datetime] = None
-    ) -> List[NormalizedMessage]:
-        """
-        최근 메시지 조회
-
-        Args:
-            channel: 채널 필터 (None이면 전체)
-            limit: 최대 개수
-            since: 이 시간 이후 메시지만
-
-        Returns:
-            메시지 리스트 (최신순)
-        """
+        since: datetime | None = None,
+        project_id: str | None = None,
+    ) -> list[NormalizedMessage]:
+        """최근 메시지 조회 (project_id 필터 지원)"""
         if not self._connection:
             raise RuntimeError("Storage not connected. Use 'async with' or call connect() first.")
 
@@ -275,6 +289,10 @@ class UnifiedStorage:
         if channel:
             query += " AND channel = ?"
             params.append(channel)
+
+        if project_id:
+            query += " AND project_id = ?"
+            params.append(project_id)
 
         if since:
             query += " AND timestamp >= ?"
@@ -287,7 +305,7 @@ class UnifiedStorage:
             rows = await cursor.fetchall()
             return [_db_row_to_message(row) for row in rows]
 
-    async def get_unprocessed_messages(self) -> List[NormalizedMessage]:
+    async def get_unprocessed_messages(self) -> list[NormalizedMessage]:
         """
         처리되지 않은 메시지 조회
 
@@ -323,7 +341,7 @@ class UnifiedStorage:
         )
         await self._connection.commit()
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """
         스토리지 통계 조회
 

@@ -7,7 +7,6 @@ AnalysisStateManager - 증분 분석 체크포인트 관리
 - GitHub: 마지막 이벤트 timestamp
 """
 
-from typing import Optional, Dict, Any
 
 from ..context_store import IntelligenceStorage
 
@@ -23,7 +22,7 @@ class AnalysisStateManager:
         project_id: str,
         source: str,
         key: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """체크포인트 값 조회"""
         state = await self.storage.get_analysis_state(project_id, source, key)
         if state:
@@ -37,7 +36,7 @@ class AnalysisStateManager:
         key: str,
         value: str,
         entries_collected: int = 0,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         """체크포인트 저장"""
         await self.storage.save_analysis_state(
@@ -49,7 +48,7 @@ class AnalysisStateManager:
             error_message=error,
         )
 
-    async def get_gmail_history_id(self, project_id: str) -> Optional[str]:
+    async def get_gmail_history_id(self, project_id: str) -> str | None:
         """Gmail historyId 조회"""
         return await self.get_checkpoint(project_id, "gmail", "history_id")
 
@@ -59,7 +58,7 @@ class AnalysisStateManager:
         """Gmail historyId 저장"""
         await self.save_checkpoint(project_id, "gmail", "history_id", history_id, entries)
 
-    async def get_slack_last_ts(self, project_id: str, channel_id: str) -> Optional[str]:
+    async def get_slack_last_ts(self, project_id: str, channel_id: str) -> str | None:
         """Slack 채널별 last_ts 조회"""
         return await self.get_checkpoint(project_id, "slack", f"last_ts:{channel_id}")
 
@@ -69,7 +68,7 @@ class AnalysisStateManager:
         """Slack 채널별 last_ts 저장"""
         await self.save_checkpoint(project_id, "slack", f"last_ts:{channel_id}", ts, entries)
 
-    async def get_github_since(self, project_id: str) -> Optional[str]:
+    async def get_github_since(self, project_id: str) -> str | None:
         """GitHub 마지막 이벤트 timestamp 조회"""
         return await self.get_checkpoint(project_id, "github", "since")
 

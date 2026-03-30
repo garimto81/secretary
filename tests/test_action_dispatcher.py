@@ -1,17 +1,16 @@
 """ActionDispatcher 테스트"""
 
-import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 # 경로 추가
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.gateway.action_dispatcher import ActionDispatcher, DispatchResult
-from scripts.gateway.models import NormalizedMessage, ChannelType, MessageType, Priority
+from scripts.gateway.action_dispatcher import ActionDispatcher
+from scripts.gateway.models import ChannelType, MessageType, NormalizedMessage, Priority
 
 
 @pytest.fixture
@@ -202,7 +201,7 @@ class TestPriorityMapping:
         """LOW -> low"""
         msg = NormalizedMessage(
             id="test4",
-            channel=ChannelType.TELEGRAM,
+            channel=ChannelType.SLACK,
             channel_id="123",
             sender_id="456",
             text="낮은 우선순위",
@@ -297,8 +296,8 @@ class TestDateParsing:
         assert dispatcher._is_parsable_date("2월 15일") is True
 
     def test_text_without_numbers_not_parsable(self, dispatcher):
-        """숫자가 없으면 파싱 불가"""
-        assert dispatcher._is_parsable_date("내일까지") is False
+        """숫자도 한국어 상대 날짜도 없으면 파싱 불가"""
+        assert dispatcher._is_parsable_date("가능하면") is False
 
     def test_empty_string_not_parsable(self, dispatcher):
         """빈 문자열은 파싱 불가"""
@@ -311,7 +310,7 @@ class TestCalendarDryRun:
     @pytest.mark.asyncio
     async def test_calendar_dry_run_not_called_if_unparsable(self, dispatcher, sample_message):
         """파싱 불가능한 날짜는 calendar dry-run 실행 안 함"""
-        actions = ["deadline:내일까지"]
+        actions = ["deadline:가능하면"]
 
         with patch("scripts.actions.todo_generator.append_todo_from_message", new_callable=AsyncMock) as mock_todo:
             mock_todo.return_value = Path("test.md")

@@ -405,8 +405,9 @@ class TestCmdSummary:
             await cmd_summary(args)
 
         out = capsys.readouterr().out
-        assert '{"summary": {}}' in out
-        mock_fmt.format_json.assert_called_once_with(summary, commits, streams)
+        parsed = json.loads(out)
+        assert "summary" in parsed
+        assert "snapshots" in parsed
 
 
 # ---------------------------------------------------------------------------

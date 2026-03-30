@@ -5,10 +5,13 @@ Git 커밋 목록에서 연속 업무 단위(Work Stream)를 자동으로 감지
 기존 DB stream과 병합하여 상태를 관리합니다.
 """
 
+import logging
 import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # 스크립트 직접 실행 시 경로 추가
 if __name__ == "__main__":
@@ -76,8 +79,9 @@ def _stream_key(stream: WorkStream) -> tuple[str, str]:
 class StreamDetector:
     """Git 커밋 목록에서 Work Stream을 감지하고 DB와 통합하는 클래스"""
 
-    def __init__(self, storage: WorkTrackerStorage):
+    def __init__(self, storage: WorkTrackerStorage, ai_analyzer=None):
         self.storage = storage
+        self.ai_analyzer = ai_analyzer  # WorkTrackerAIAnalyzer | None
 
     # ------------------------------------------------------------------
     # Public API
@@ -86,32 +90,107 @@ class StreamDetector:
     async def detect_streams(self, commits: list[DailyCommit]) -> list[WorkStream]:
         """커밋 목록에서 Work Stream 후보 감지 + 기존 stream과 병합.
 
-        1. 4가지 감지 메서드로 후보 수집
-        2. _merge_candidates로 중복 제거
-        3. reconcile_with_existing으로 기존 stream 업데이트
-        4. update_stream_statuses로 상태 업데이트
+        1. 3가지 규칙 기반 감지 메서드로 후보 수집
+        2. AI 키워드 클러스터링으로 KEYWORD 후보 추가 (Gap 1)
+        3. _merge_candidates로 중복 제거
+        4. reconcile_with_existing으로 기존 stream 업데이트
+        5. AI 스트림 명명 (Gap 4)
+        6. update_stream_statuses로 상태 업데이트
         """
         if not commits:
             return []
 
-        # 1. 후보 수집
+        # 1. 규칙 기반 후보 수집
         candidates: list[WorkStream] = []
         candidates.extend(self._detect_by_branch(commits))
         candidates.extend(self._detect_by_scope(commits))
         candidates.extend(self._detect_by_path(commits))
 
+        # 2. AI 키워드 클러스터링 (Gap 1, graceful degradation)
+        if self.ai_analyzer:
+            ai_streams = await self._detect_by_ai_keywords(commits)
+            candidates.extend(ai_streams)
+
         if not candidates:
             return []
 
-        # 2. 중복 제거
+        # 3. 중복 제거
         merged = self._merge_candidates(candidates)
 
-        # 3. 기존 DB stream과 통합
+        # 4. 기존 DB stream과 통합
         reconciled = await self.reconcile_with_existing(merged)
 
-        # 4. 상태 업데이트 — reference_date는 커밋 중 가장 최근 날짜
+        # 5. AI 스트림 명명 (Gap 4, graceful degradation)
+        if self.ai_analyzer:
+            await self._apply_ai_stream_names(reconciled)
+
+        # 6. 상태 업데이트 — reference_date는 커밋 중 가장 최근 날짜
         reference_date = max(c.date for c in commits)
         return self.update_stream_statuses(reconciled, reference_date)
+
+    async def _detect_by_ai_keywords(
+        self, commits: list[DailyCommit]
+    ) -> list[WorkStream]:
+        """AI 키워드 클러스터링으로 KEYWORD 스트림 감지 (Gap 1)"""
+        try:
+            clusters = await self.ai_analyzer.cluster_keywords(commits)
+            if not clusters:
+                return []
+
+            # commit_hash → commit 매핑
+            hash_map = {c.commit_hash[:7]: c for c in commits}
+
+            streams: list[WorkStream] = []
+            for cluster_name, hashes in clusters.items():
+                matched_commits = [
+                    hash_map[h] for h in hashes if h in hash_map
+                ]
+                if len(matched_commits) < 2:
+                    continue
+
+                repos = sorted({c.repo for c in matched_commits})
+                timestamps = [c.timestamp for c in matched_commits]
+                project = matched_commits[0].project
+
+                streams.append(
+                    WorkStream(
+                        name=cluster_name,
+                        project=project,
+                        repos=repos,
+                        first_commit=min(timestamps),
+                        last_commit=max(timestamps),
+                        total_commits=len(matched_commits),
+                        status=StreamStatus.NEW,
+                        detection_method=DetectionMethod.KEYWORD,
+                    )
+                )
+            return streams
+
+        except Exception as e:
+            logger.warning(f"AI keyword detection failed: {e}")
+            return []
+
+    async def _apply_ai_stream_names(
+        self, streams: list[WorkStream]
+    ) -> None:
+        """AI 스트림 명명 적용 (Gap 4, in-place 수정)"""
+        try:
+            name_map = await self.ai_analyzer.generate_stream_names(streams)
+            if not name_map:
+                return
+
+            for stream in streams:
+                if stream.name in name_map:
+                    new_name = name_map[stream.name]
+                    if new_name and new_name.strip():
+                        # metadata에 원래 이름 보존
+                        if stream.metadata is None:
+                            stream.metadata = {}
+                        stream.metadata["original_name"] = stream.name
+                        stream.name = new_name.strip()
+
+        except Exception as e:
+            logger.warning(f"AI stream naming failed: {e}")
 
     # ------------------------------------------------------------------
     # Detection methods

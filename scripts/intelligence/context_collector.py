@@ -4,11 +4,11 @@ ContextCollector - 멀티소스 컨텍스트 수집 인터페이스
 IncrementalRunner를 래핑하여 간단한 인터페이스 제공.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 from .context_store import IntelligenceStorage
-from .project_registry import ProjectRegistry
 from .incremental.runner import IncrementalRunner
+from .project_registry import ProjectRegistry
 
 
 class ContextCollector:
@@ -21,9 +21,9 @@ class ContextCollector:
 
     async def collect(
         self,
-        project_id: Optional[str] = None,
-        sources: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        project_id: str | None = None,
+        sources: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         컨텍스트 수집 실행
 
@@ -36,7 +36,7 @@ class ContextCollector:
         """
         return await self.runner.run(project_id, sources)
 
-    async def collect_all(self) -> Dict[str, Any]:
+    async def collect_all(self) -> dict[str, Any]:
         """전체 프로젝트, 전체 소스 수집"""
         return await self.runner.run()
 

@@ -94,7 +94,7 @@ const sortedSubtitles = [...input.subtitles].sort((a, b) => {
 // Build output object
 const output = {
   generated_at: new Date().toISOString(),
-  model: 'claude-opus-4.5',
+  model: 'claude-sonnet-4-6',
   total_count: input.subtitles.length,
   phase_summary: {
     overview: input.subtitles.filter(s => s.phase === 'overview').length,

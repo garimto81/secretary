@@ -61,11 +61,14 @@ class MetricsCalculator:
     def __init__(self, storage: WorkTrackerStorage):
         self.storage = storage
 
-    async def calculate_daily(self, date: str) -> DailySummary:
+    async def calculate_daily(
+        self, date: str, use_snapshots: bool = False
+    ) -> DailySummary:
         """일일 지표 계산
 
         Args:
             date: YYYY-MM-DD
+            use_snapshots: True면 프로젝트 스냅샷을 AI에 전달
 
         Returns:
             DailySummary (저장 완료 후 반환)
@@ -81,6 +84,43 @@ class MetricsCalculator:
         active_streams = await self.storage.get_streams(status=StreamStatus.ACTIVE.value)
         active_stream_count = len(active_streams)
 
+        # 스냅샷 로드 (use_snapshots=True 시)
+        snapshots = None
+        if use_snapshots:
+            try:
+                snapshots = await self.storage.get_latest_snapshots()
+                if not snapshots:
+                    snapshots = None
+            except Exception:
+                snapshots = None
+
+        # /daily 스킬에서 AI 생성 — metrics.py는 빈 기본값 유지
+        highlights: list[str] = []
+        next_tasks: list[str] = []
+        progress_by_project: dict = {}
+        predictions: list[str] = []
+        github_summary: dict | None = None
+
+        # GitHub 요약 (스냅샷에서 추출)
+        if snapshots:
+            total_issues = sum(len(s.github_open_issues) for s in snapshots)
+            total_prs = sum(len(s.github_open_prs) for s in snapshots)
+            total_attention = []
+            for s in snapshots:
+                total_attention.extend(s.github_attention)
+            if total_issues > 0 or total_prs > 0:
+                github_summary = {
+                    "open_issues": total_issues,
+                    "open_prs": total_prs,
+                    "attention": total_attention[:5],
+                }
+
+            # 스냅샷의 PRD 기반 진행률 fallback (AI가 생성 못한 경우)
+            if not progress_by_project:
+                for s in snapshots:
+                    if s.estimated_progress > 0:
+                        progress_by_project[s.project] = s.estimated_progress
+
         summary = DailySummary(
             date=date,
             total_commits=total_commits,
@@ -89,6 +129,11 @@ class MetricsCalculator:
             doc_change_ratio=doc_change_ratio,
             project_distribution=project_distribution,
             active_streams=active_stream_count,
+            highlights=highlights,
+            next_tasks=next_tasks,
+            github_summary=github_summary,
+            progress_by_project=progress_by_project if progress_by_project else None,
+            predictions=predictions,
         )
 
         await self.storage.save_daily_summary(summary)

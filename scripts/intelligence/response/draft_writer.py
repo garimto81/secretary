@@ -5,11 +5,22 @@ ClaudeCodeDraftWriter: claude -p --model opus subprocess로 고품질 draft 생�
 """
 
 import asyncio
+import logging
 import shutil
 import time
-from pathlib import Path
-from typing import Optional
 from collections import deque
+from pathlib import Path
+
+try:
+    from scripts.shared.retry import retry_async
+except ImportError:
+    try:
+        from shared.retry import retry_async
+    except ImportError:
+        # 패키지 import 시 사용 불가하면 inline fallback
+        retry_async = None
+
+logger = logging.getLogger(__name__)
 
 
 PROMPT_TEMPLATE_PATH = Path(r"C:\claude\secretary\scripts\intelligence\prompts\draft_prompt.txt")
@@ -27,7 +38,7 @@ class ClaudeCodeDraftWriter:
         self,
         model: str = "opus",
         max_context_chars: int = 12000,
-        timeout: int = 60,
+        timeout: int = 120,
     ):
         """
         Args:
@@ -68,7 +79,10 @@ class ClaudeCodeDraftWriter:
         original_text: str,
         sender_name: str,
         source_channel: str,
+        ollama_reasoning: str = "",
         analysis_summary: str = "",
+        rag_context: str = "",
+        channel_context: str = "",
     ) -> str:
         """
         claude -p --model opus subprocess로 고품질 draft 생성
@@ -79,7 +93,9 @@ class ClaudeCodeDraftWriter:
             original_text: 원본 메시지
             sender_name: 발신자 이름
             source_channel: 소스 채널 (Slack, Gmail 등)
+            ollama_reasoning: OllamaAnalyzer의 자유 추론 텍스트 (선택)
             analysis_summary: OllamaAnalyzer의 분석 요약 (선택)
+            rag_context: Knowledge Store RAG 검색 결과 (선택)
 
         Returns:
             생성된 draft 텍스트
@@ -91,48 +107,55 @@ class ClaudeCodeDraftWriter:
 
         context_truncated = project_context[:self.max_context_chars] if project_context else "(컨텍스트 없음)"
 
-        # 분석 요약이 있으면 컨텍스트에 추가
-        if analysis_summary:
-            context_with_analysis = f"{context_truncated}\n\n## 분석 요약\n{analysis_summary}"
-        else:
-            context_with_analysis = context_truncated
+        # Ollama 추론 텍스트 절삭 (3000자 제한)
+        reasoning_truncated = ollama_reasoning[:3000] if ollama_reasoning else "(사전 분석 없음)"
 
         prompt = self._prompt_template.format(
             project_name=project_name,
-            context=context_with_analysis,
+            context=context_truncated,
+            ollama_reasoning=reasoning_truncated,
             sender_name=sender_name or "Unknown",
             source_channel=source_channel,
             original_text=original_text[:2000] if original_text else "",
+            rag_context=rag_context or "(과거 이력 없음)",
+            channel_context=channel_context or "(채널 컨텍스트 없음)",
         )
 
-        result = await asyncio.to_thread(
-            self._run_claude,
-            prompt,
-        )
+        if retry_async:
+            result = await retry_async(
+                self._run_claude_async,
+                prompt,
+                max_retries=1,
+                base_delay=5.0,
+                retryable_exceptions=(RuntimeError,),
+            )
+        else:
+            result = await self._run_claude_async(prompt)
 
         self._rate_limit_times.append(time.time())
         return result
 
-    def _run_claude(self, prompt: str) -> str:
-        """claude -p --model opus 실행 (blocking)"""
-        import subprocess
-
+    async def _run_claude_async(self, prompt: str) -> str:
+        """claude -p --model opus 비동기 실행"""
         try:
-            result = subprocess.run(
-                [self.claude_path, "-p", "--model", self.model, prompt],
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                encoding="utf-8",
+            process = await asyncio.create_subprocess_exec(
+                self.claude_path, "-p", "--model", self.model, prompt,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Claude CLI 타임아웃 ({self.timeout}초)")
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.timeout,
+            )
+        except TimeoutError as e:
+            process.kill()
+            raise RuntimeError(f"Claude CLI 타임아웃 ({self.timeout}초)") from e
 
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() if result.stderr else "Unknown error"
-            raise RuntimeError(f"Claude CLI 에러 (code {result.returncode}): {error_msg}")
+        if process.returncode != 0:
+            error_msg = stderr.decode("utf-8", errors="replace").strip() if stderr else "Unknown error"
+            raise RuntimeError(f"Claude CLI 에러 (code {process.returncode}): {error_msg}")
 
-        output = result.stdout.strip()
+        output = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
         if not output:
             raise RuntimeError("Claude CLI가 빈 응답을 반환했습니다")
 
@@ -152,6 +175,32 @@ class ClaudeCodeDraftWriter:
                 raise RuntimeError(
                     f"Rate limit 초과 (5 drafts/min). {wait_time:.0f}초 후 재시도하세요."
                 )
+
+    async def chatbot_respond(
+        self,
+        text: str,
+        sender_name: str,
+        context: str = "",
+        channel_context: str = "",  # BOT-K03 추가
+    ) -> str | None:
+        """
+        Chatbot 채널 응답 생성 (Ollama 대체용)
+
+        Claude Sonnet subprocess로 간단한 대화 응답 생성.
+        """
+        prompt = f"""{f"채널 전문가 컨텍스트:{chr(10)}{channel_context}{chr(10)}{chr(10)}" if channel_context else ""}Slack 채널에서 받은 메시지에 답변하세요.
+
+발신자: {sender_name}
+메시지: {text}
+{f"추가 컨텍스트:{chr(10)}{context}" if context else ""}
+
+친근하고 도움이 되는 한국어 응답을 작성하세요. (3-5문장 이내)"""
+
+        try:
+            return await self._run_claude_async(prompt)
+        except Exception as e:
+            logger.warning(f"chatbot_respond 실패: {e}")
+            return None
 
     @property
     def is_available(self) -> bool:

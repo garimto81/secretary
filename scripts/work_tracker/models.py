@@ -142,6 +142,54 @@ class WorkStream:
 
 
 @dataclass
+class ProjectSnapshot:
+    """프로젝트 스냅샷 — Claude Code가 최초 1회 생성"""
+    project: str                          # EBS / WSOPTV / Secretary
+    snapshot_date: str                    # YYYY-MM-DD
+    repos: list[str] = field(default_factory=list)
+
+    # GitHub 현황
+    github_open_issues: list[dict] = field(default_factory=list)
+    github_open_prs: list[dict] = field(default_factory=list)
+    github_attention: list[dict] = field(default_factory=list)
+
+    # 로컬 구조 분석
+    dir_structure: dict = field(default_factory=dict)
+    prd_status: list[dict] = field(default_factory=list)
+    doc_inventory: list[dict] = field(default_factory=list)
+
+    # git 히스토리 요약
+    recent_activity: dict = field(default_factory=dict)
+    active_branches: list[dict] = field(default_factory=list)
+
+    # 추론 결과
+    project_summary: str = ""
+    estimated_progress: int = 0
+    milestones: list[dict] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """딕셔너리 직렬화"""
+        return {
+            "project": self.project,
+            "snapshot_date": self.snapshot_date,
+            "repos": list(self.repos),
+            "github_open_issues": list(self.github_open_issues),
+            "github_open_prs": list(self.github_open_prs),
+            "github_attention": list(self.github_attention),
+            "dir_structure": dict(self.dir_structure),
+            "prd_status": list(self.prd_status),
+            "doc_inventory": list(self.doc_inventory),
+            "recent_activity": dict(self.recent_activity),
+            "active_branches": list(self.active_branches),
+            "project_summary": self.project_summary,
+            "estimated_progress": self.estimated_progress,
+            "milestones": list(self.milestones),
+            "risks": list(self.risks),
+        }
+
+
+@dataclass
 class DailySummary:
     """일일 요약"""
     date: str                    # YYYY-MM-DD
@@ -152,13 +200,21 @@ class DailySummary:
     project_distribution: dict | None = None  # {"EBS": 60, "WSOPTV": 30}
     active_streams: int = 0
     highlights: list[str] = field(default_factory=list)
+    next_tasks: list[str] = field(default_factory=list)
     slack_message_id: str | None = None
+    # 멀티소스 확장 필드
+    github_summary: dict | None = None
+    progress_by_project: dict | None = None
+    predictions: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         """유효성 검사 및 타입 변환"""
-        # highlights가 None으로 전달된 경우 빈 리스트로 정규화
         if self.highlights is None:
             self.highlights = []
+        if self.next_tasks is None:
+            self.next_tasks = []
+        if self.predictions is None:
+            self.predictions = []
 
     def to_dict(self) -> dict:
         """딕셔너리 직렬화"""
@@ -171,7 +227,11 @@ class DailySummary:
             "project_distribution": dict(self.project_distribution) if self.project_distribution else None,
             "active_streams": self.active_streams,
             "highlights": list(self.highlights),
+            "next_tasks": list(self.next_tasks),
             "slack_message_id": self.slack_message_id,
+            "github_summary": dict(self.github_summary) if self.github_summary else None,
+            "progress_by_project": dict(self.progress_by_project) if self.progress_by_project else None,
+            "predictions": list(self.predictions),
         }
 
 

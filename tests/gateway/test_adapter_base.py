@@ -2,16 +2,20 @@
 Channel Adapter Base Interface 테스트
 """
 
-import pytest
 from datetime import datetime
-from scripts.gateway.models import (
-    ChannelType,
-    MessageType,
-    MessagePriority,
-    NormalizedMessage,
-    OutboundMessage,
-)
-from scripts.gateway.adapters import ChannelAdapter, SendResult, AdapterConfig
+
+import pytest
+
+try:
+    from scripts.gateway.adapters import AdapterConfig, ChannelAdapter, SendResult
+    from scripts.gateway.models import ChannelType, NormalizedMessage, OutboundMessage
+except ImportError:
+    try:
+        from gateway.adapters import AdapterConfig, ChannelAdapter, SendResult
+        from gateway.models import ChannelType, NormalizedMessage, OutboundMessage
+    except ImportError:
+        from scripts.gateway.adapters import AdapterConfig, ChannelAdapter, SendResult
+        from scripts.gateway.models import ChannelType, NormalizedMessage, OutboundMessage
 
 
 # NormalizedMessage 필드 매핑 (기존 구조 유지)

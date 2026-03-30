@@ -6,11 +6,10 @@ SQLite FTS5 기반 프로젝트별 지식 저장소 테스트.
 """
 
 import sys
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
-import aiosqlite
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 

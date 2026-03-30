@@ -20,7 +20,6 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
@@ -45,7 +44,7 @@ PACKAGE_TO_NAME = {v: k for k, v in APP_PACKAGES.items()}
 def get_notifications(
     db_path: Path,
     days: int = 3,
-    app_filter: Optional[str] = None
+    app_filter: str | None = None
 ) -> list:
     """SQLite에서 알림 조회"""
     if not db_path.exists():

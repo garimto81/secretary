@@ -13,7 +13,6 @@ Usage:
 """
 
 from datetime import date
-from typing import Optional
 
 try:
     from korean_lunar_calendar import KoreanLunarCalendar
@@ -29,7 +28,7 @@ def lunar_to_solar(
     month: int,
     day: int,
     is_leap_month: bool = False
-) -> Optional[date]:
+) -> date | None:
     """
     음력 날짜를 양력 날짜로 변환
 
@@ -66,7 +65,7 @@ def solar_to_lunar(
     year: int,
     month: int,
     day: int
-) -> Optional[tuple[int, int, int, bool]]:
+) -> tuple[int, int, int, bool] | None:
     """
     양력 날짜를 음력 날짜로 변환
 
@@ -96,7 +95,7 @@ def solar_to_lunar(
         return None
 
 
-def get_lunar_new_year(year: int) -> Optional[date]:
+def get_lunar_new_year(year: int) -> date | None:
     """
     해당 연도의 설날(음력 1월 1일) 양력 날짜 반환
 
@@ -109,7 +108,7 @@ def get_lunar_new_year(year: int) -> Optional[date]:
     return lunar_to_solar(year, 1, 1)
 
 
-def get_chuseok(year: int) -> Optional[date]:
+def get_chuseok(year: int) -> date | None:
     """
     해당 연도의 추석(음력 8월 15일) 양력 날짜 반환
 

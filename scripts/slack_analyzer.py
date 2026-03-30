@@ -19,9 +19,8 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
@@ -33,10 +32,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 try:
     from lib.slack import SlackClient, get_token
     from lib.slack.errors import (
-        SlackAuthError,
-        SlackRateLimitError,
         SlackAPIError,
+        SlackAuthError,
         SlackChannelNotFoundError,
+        SlackRateLimitError,
         SlackTokenRevokedError,
     )
 except ImportError as e:
@@ -69,7 +68,7 @@ def get_authenticated_client() -> SlackClient:
         sys.exit(1)
 
 
-def get_bot_user_id() -> Optional[str]:
+def get_bot_user_id() -> str | None:
     """봇의 User ID 조회"""
     try:
         # auth.test로 봇 정보 확인
@@ -79,7 +78,7 @@ def get_bot_user_id() -> Optional[str]:
         return None
 
 
-def is_mentioned(message: dict, bot_user_id: Optional[str]) -> bool:
+def is_mentioned(message: dict, bot_user_id: str | None) -> bool:
     """메시지에 봇이 멘션되었는지 확인"""
     text = message.get("text", "")
 
@@ -125,9 +124,8 @@ def calculate_hours_since(timestamp: datetime) -> int:
     now = datetime.now()
     # timestamp가 timezone-aware일 경우 처리
     if timestamp.tzinfo is not None:
-        from datetime import timezone
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     delta = now - timestamp
     return int(delta.total_seconds() / 3600)
@@ -178,7 +176,7 @@ def has_action_required(text: str) -> bool:
 
 
 def analyze_message(
-    message: dict, channel_name: str, bot_user_id: Optional[str]
+    message: dict, channel_name: str, bot_user_id: str | None
 ) -> dict:
     """메시지 분석"""
     text = message.get("text", "")
@@ -225,7 +223,7 @@ def list_messages(
     client: SlackClient,
     days: int = 3,
     max_results: int = 50,
-    channel_filter: Optional[list] = None,
+    channel_filter: list | None = None,
 ) -> list:
     """메시지 목록 조회"""
     messages = []

@@ -30,6 +30,7 @@ try:
         CommitType,
         StreamStatus,
         DetectionMethod,
+        ProjectSnapshot,
     )
 except ImportError:
     try:
@@ -42,6 +43,7 @@ except ImportError:
             CommitType,
             StreamStatus,
             DetectionMethod,
+            ProjectSnapshot,
         )
     except ImportError:
         from .models import (
@@ -53,6 +55,7 @@ except ImportError:
             CommitType,
             StreamStatus,
             DetectionMethod,
+            ProjectSnapshot,
         )
 
 # 기본 DB 경로 (scripts.shared.paths 우선, fallback)
@@ -126,6 +129,7 @@ CREATE TABLE IF NOT EXISTS daily_summaries (
     project_distribution TEXT,
     active_streams INTEGER DEFAULT 0,
     highlights TEXT,
+    next_tasks TEXT,
     slack_message_id TEXT,
     created_at TEXT NOT NULL
 );
@@ -145,11 +149,39 @@ CREATE TABLE IF NOT EXISTS weekly_summaries (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS project_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    repos TEXT NOT NULL,
+    github_data TEXT,
+    local_structure TEXT,
+    git_history TEXT,
+    analysis TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(project, snapshot_date)
+);
+
 CREATE INDEX IF NOT EXISTS idx_commits_date ON daily_commits(date);
 CREATE INDEX IF NOT EXISTS idx_commits_repo ON daily_commits(repo);
 CREATE INDEX IF NOT EXISTS idx_commits_project ON daily_commits(project);
 CREATE INDEX IF NOT EXISTS idx_streams_status ON work_streams(status);
 CREATE INDEX IF NOT EXISTS idx_streams_project ON work_streams(project);
+CREATE INDEX IF NOT EXISTS idx_snapshot_project ON project_snapshots(project);
+
+CREATE TABLE IF NOT EXISTS file_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_dir TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    modified_at TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(file_path, snapshot_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_filesnapshot_dir ON file_snapshots(project_dir);
+CREATE INDEX IF NOT EXISTS idx_filesnapshot_date ON file_snapshots(snapshot_date);
 """
 
 
@@ -288,7 +320,11 @@ def _daily_summary_to_db_dict(summary: DailySummary, now: str | None = None) -> 
         ),
         "active_streams": summary.active_streams,
         "highlights": json.dumps(summary.highlights if summary.highlights is not None else []),
+        "next_tasks": json.dumps(summary.next_tasks if summary.next_tasks is not None else []),
         "slack_message_id": summary.slack_message_id,
+        "github_summary": json.dumps(summary.github_summary) if summary.github_summary else None,
+        "progress_by_project": json.dumps(summary.progress_by_project) if summary.progress_by_project else None,
+        "predictions": json.dumps(summary.predictions if summary.predictions else []),
         "created_at": now or datetime.now().isoformat(),
     }
 
@@ -307,6 +343,30 @@ def _db_row_to_daily_summary(row: dict[str, Any]) -> DailySummary:
     except (json.JSONDecodeError, TypeError):
         highlights = []
 
+    next_tasks_raw = row.get("next_tasks")
+    try:
+        next_tasks = json.loads(next_tasks_raw) if next_tasks_raw else []
+    except (json.JSONDecodeError, TypeError):
+        next_tasks = []
+
+    github_summary_raw = row.get("github_summary")
+    try:
+        github_summary = json.loads(github_summary_raw) if github_summary_raw else None
+    except (json.JSONDecodeError, TypeError):
+        github_summary = None
+
+    progress_raw = row.get("progress_by_project")
+    try:
+        progress_by_project = json.loads(progress_raw) if progress_raw else None
+    except (json.JSONDecodeError, TypeError):
+        progress_by_project = None
+
+    predictions_raw = row.get("predictions")
+    try:
+        predictions = json.loads(predictions_raw) if predictions_raw else []
+    except (json.JSONDecodeError, TypeError):
+        predictions = []
+
     return DailySummary(
         date=row["date"],
         total_commits=int(row.get("total_commits") or 0),
@@ -316,7 +376,11 @@ def _db_row_to_daily_summary(row: dict[str, Any]) -> DailySummary:
         project_distribution=project_distribution,
         active_streams=int(row.get("active_streams") or 0),
         highlights=highlights,
+        next_tasks=next_tasks,
         slack_message_id=row.get("slack_message_id"),
+        github_summary=github_summary,
+        progress_by_project=progress_by_project,
+        predictions=predictions,
     )
 
 
@@ -408,6 +472,22 @@ class WorkTrackerStorage:
         self._connection = await aiosqlite.connect(str(self.db_path))
         self._connection.row_factory = aiosqlite.Row
         await self._connection.executescript(SCHEMA)
+        await self._connection.commit()
+        await self._migrate_daily_summaries()
+
+    async def _migrate_daily_summaries(self) -> None:
+        """daily_summaries 테이블에 멀티소스 확장 컬럼 추가 (하위 호환)"""
+        for col, col_type in [
+            ("github_summary", "TEXT"),
+            ("progress_by_project", "TEXT"),
+            ("predictions", "TEXT"),
+        ]:
+            try:
+                await self._connection.execute(
+                    f"ALTER TABLE daily_summaries ADD COLUMN {col} {col_type}"
+                )
+            except Exception:
+                pass  # 이미 존재하면 무시
         await self._connection.commit()
 
     async def close(self) -> None:
@@ -599,3 +679,223 @@ class WorkTrackerStorage:
             if row:
                 return _db_row_to_weekly_summary(dict(row))
             return None
+
+    # ------------------------------------------------------------------
+    # Project Snapshots
+    # ------------------------------------------------------------------
+
+    async def save_snapshot(self, snapshot: ProjectSnapshot) -> None:
+        """프로젝트 스냅샷 저장 (INSERT OR REPLACE)."""
+        self._check_connected()
+        data = {
+            "project": snapshot.project,
+            "snapshot_date": snapshot.snapshot_date,
+            "repos": json.dumps(snapshot.repos),
+            "github_data": json.dumps({
+                "open_issues": snapshot.github_open_issues,
+                "open_prs": snapshot.github_open_prs,
+                "attention": snapshot.github_attention,
+            }),
+            "local_structure": json.dumps({
+                "dir_structure": snapshot.dir_structure,
+                "prd_status": snapshot.prd_status,
+                "doc_inventory": snapshot.doc_inventory,
+            }),
+            "git_history": json.dumps({
+                "recent_activity": snapshot.recent_activity,
+                "active_branches": snapshot.active_branches,
+            }),
+            "analysis": json.dumps({
+                "project_summary": snapshot.project_summary,
+                "estimated_progress": snapshot.estimated_progress,
+                "milestones": snapshot.milestones,
+                "risks": snapshot.risks,
+            }),
+            "created_at": datetime.now().isoformat(),
+        }
+        columns = ", ".join(data.keys())
+        placeholders = ", ".join(["?" for _ in data])
+        await self._connection.execute(
+            f"INSERT OR REPLACE INTO project_snapshots ({columns}) VALUES ({placeholders})",
+            list(data.values()),
+        )
+        await self._connection.commit()
+
+    async def get_latest_snapshots(self) -> list[ProjectSnapshot]:
+        """프로젝트별 최신 스냅샷 1건씩 조회."""
+        self._check_connected()
+        query = """
+            SELECT * FROM project_snapshots
+            WHERE id IN (
+                SELECT MAX(id) FROM project_snapshots GROUP BY project
+            )
+            ORDER BY project
+        """
+        async with self._connection.execute(query) as cursor:
+            rows = await cursor.fetchall()
+            return [self._db_row_to_snapshot(dict(row)) for row in rows]
+
+    async def get_snapshot(self, project: str, date: str) -> ProjectSnapshot | None:
+        """특정 프로젝트 + 날짜 스냅샷 조회."""
+        self._check_connected()
+        async with self._connection.execute(
+            "SELECT * FROM project_snapshots WHERE project = ? AND snapshot_date = ?",
+            (project, date),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return self._db_row_to_snapshot(dict(row))
+            return None
+
+    async def update_snapshot_analysis(
+        self,
+        project: str,
+        progress: int = 0,
+        summary: str = "",
+        milestones: list[dict] | None = None,
+        risks: list[str] | None = None,
+    ) -> bool:
+        """스냅샷의 분석 결과만 업데이트 (Claude Code → DB).
+
+        최신 스냅샷의 analysis JSON 필드만 갱신합니다.
+
+        Args:
+            project: 프로젝트명
+            progress: 진행률 (0-100)
+            summary: 프로젝트 요약
+            milestones: 마일스톤 목록 [{"name": "...", "status": "..."}]
+            risks: 위험 요소 목록 ["...", "..."]
+
+        Returns:
+            True if updated, False if no snapshot found
+        """
+        self._check_connected()
+        # 최신 스냅샷 ID 조회
+        async with self._connection.execute(
+            "SELECT id, analysis FROM project_snapshots WHERE project = ? ORDER BY id DESC LIMIT 1",
+            (project,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return False
+
+        snapshot_id = row["id"]
+        existing_analysis = json.loads(row["analysis"]) if row["analysis"] else {}
+
+        # 분석 결과 병합
+        existing_analysis["project_summary"] = summary or existing_analysis.get("project_summary", "")
+        existing_analysis["estimated_progress"] = progress
+        if milestones is not None:
+            existing_analysis["milestones"] = milestones
+        if risks is not None:
+            existing_analysis["risks"] = risks
+
+        await self._connection.execute(
+            "UPDATE project_snapshots SET analysis = ? WHERE id = ?",
+            (json.dumps(existing_analysis), snapshot_id),
+        )
+        await self._connection.commit()
+        return True
+
+    # ------------------------------------------------------------------
+    # File Snapshots (파일시스템 변경 감지)
+    # ------------------------------------------------------------------
+
+    async def save_file_snapshots(self, records: list[dict]) -> int:
+        """파일 스냅샷 bulk insert. Returns saved count."""
+        self._check_connected()
+        saved = 0
+        for r in records:
+            try:
+                await self._connection.execute(
+                    """INSERT OR IGNORE INTO file_snapshots
+                       (project_dir, file_path, file_size, modified_at, snapshot_date, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        r["project_dir"],
+                        r["file_path"],
+                        r["file_size"],
+                        r["modified_at"],
+                        r["snapshot_date"],
+                        r.get("created_at", datetime.now().isoformat()),
+                    ),
+                )
+                saved += 1
+            except Exception:
+                pass  # UNIQUE constraint 등 무시
+        await self._connection.commit()
+        return saved
+
+    async def get_latest_file_snapshot(self, project_dir: str | None = None) -> list[dict]:
+        """최신 스냅샷 날짜의 파일 목록 조회. project_dir 필터 선택."""
+        self._check_connected()
+        # 최신 snapshot_date 조회
+        if project_dir:
+            async with self._connection.execute(
+                "SELECT MAX(snapshot_date) as latest FROM file_snapshots WHERE project_dir = ?",
+                (project_dir,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        else:
+            async with self._connection.execute(
+                "SELECT MAX(snapshot_date) as latest FROM file_snapshots",
+            ) as cursor:
+                row = await cursor.fetchone()
+
+        if not row or not row["latest"]:
+            return []
+
+        latest_date = row["latest"]
+        query = "SELECT project_dir, file_path, file_size, modified_at, snapshot_date FROM file_snapshots WHERE snapshot_date = ?"
+        params: list[Any] = [latest_date]
+        if project_dir:
+            query += " AND project_dir = ?"
+            params.append(project_dir)
+
+        async with self._connection.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def get_file_snapshot_dates(self) -> list[str]:
+        """저장된 스냅샷 날짜 목록 (최신순)."""
+        self._check_connected()
+        async with self._connection.execute(
+            "SELECT DISTINCT snapshot_date FROM file_snapshots ORDER BY snapshot_date DESC",
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [r["snapshot_date"] for r in rows]
+
+    @staticmethod
+    def _db_row_to_snapshot(row: dict[str, Any]) -> ProjectSnapshot:
+        """DB 행 → ProjectSnapshot"""
+        def _load_json(val, default=None):
+            if default is None:
+                default = {}
+            try:
+                return json.loads(val) if val else default
+            except (json.JSONDecodeError, TypeError):
+                return default
+
+        repos = _load_json(row.get("repos"), [])
+        github_data = _load_json(row.get("github_data"))
+        local_structure = _load_json(row.get("local_structure"))
+        git_history = _load_json(row.get("git_history"))
+        analysis = _load_json(row.get("analysis"))
+
+        return ProjectSnapshot(
+            project=row["project"],
+            snapshot_date=row["snapshot_date"],
+            repos=repos,
+            github_open_issues=github_data.get("open_issues", []),
+            github_open_prs=github_data.get("open_prs", []),
+            github_attention=github_data.get("attention", []),
+            dir_structure=local_structure.get("dir_structure", {}),
+            prd_status=local_structure.get("prd_status", []),
+            doc_inventory=local_structure.get("doc_inventory", []),
+            recent_activity=git_history.get("recent_activity", {}),
+            active_branches=git_history.get("active_branches", []),
+            project_summary=analysis.get("project_summary", ""),
+            estimated_progress=analysis.get("estimated_progress", 0),
+            milestones=analysis.get("milestones", []),
+            risks=analysis.get("risks", []),
+        )

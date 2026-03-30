@@ -93,6 +93,24 @@ Commands:
 - `--dry-run` (기본값): 메시지 미리보기만
 - `--confirm`: 실제 전송 (첫 사용 시 필수)
 
+### FR-6: 프로젝트 스냅샷 수집 (snapshot_builder.py + github_collector.py + local_scanner.py)
+
+- GitHub API로 오픈 이슈/PR/attention 수집 (github_collector.py)
+- 로컬 50개 레포 스캔: 디렉토리 구조, PRD 상태, 문서 인벤토리, 최근 활동 (local_scanner.py)
+- 프로젝트별 ProjectSnapshot 생성 → DB 저장 (snapshot_builder.py)
+- PRD 기반 진행률 자동 추정 (완료/진행 중/예정 비율)
+- CLI: `python -m scripts.work_tracker snapshot [--project NAME] [--json]`
+
+### FR-7: /daily 스킬 통합 (v4.0 — 4-Phase Pipeline)
+
+4-Phase Pipeline:
+1. **Phase 0: Snapshot Check** — DB에서 스냅샷 존재 확인, 없으면 자동 생성
+2. **Phase 1: Delta Collection** — git log(당일) + GitHub 신규 이슈/PR만 증분 수집
+3. **Phase 2: Claude Analysis** — 스냅샷(학습 데이터) + delta(증분) → Claude Code 직접 분석
+4. **Phase 3: Report + State Update** — Slack 포맷 생성 + 전송 + 수집 커서 갱신
+
+CLI: `python -m scripts.work_tracker update-analysis --project NAME --progress N --summary "..."`
+
 ### NFR-1: 기존 secretary 아키텍처 통합
 
 | 패턴 | 원본 | 적용 |
@@ -110,13 +128,17 @@ Commands:
 
 | 티어 | 모델 | 용도 |
 |------|------|------|
-| Tier 1 (기본) | Qwen 3.5 9B (Ollama Docker) | 커밋 메시지 요약, Work Stream 자동 명명, 일일 하이라이트 생성 |
-| Tier 2 (에스컬레이션) | Claude Sonnet (기존 `claude_draft` 패턴) | 복잡한 분석, 트렌드 해석 |
+| 단일 | Claude Code (직접 분석) | 커밋 분석, 하이라이트 생성, 진행률 추정, 예측 |
 
-기존 gateway.json 설정:
-- endpoint: `http://localhost:11434`
-- 현재 모델: `qwen3:8b` → 업그레이드 대상: `qwen3.5:9b`
-- escalation 기준: confidence < 0.6 또는 complexity > 0.7
+**Snapshot + Delta 패턴**:
+- 최초 1회: 전체 프로젝트 히스토리 전수 스캔 → `project_snapshots` DB에 학습 자료 저장
+- 이후 매일: 증분 데이터(당일 커밋, 새 이슈/PR)만 처리 + 스냅샷 참조
+- Qwen/Ollama 완전 제거 — 하루 1회 실행이므로 Claude Code가 직접 분석 (비용 ~$0.01/일)
+
+기존 Ollama 설정 (제거됨):
+- ~~endpoint: `http://localhost:11434`~~
+- ~~모델: `qwen3.5:9b`~~
+- ~~escalation 기준: confidence < 0.6~~
 
 ### NFR-3: 안전
 
@@ -363,12 +385,22 @@ W12: ██████████ 48  ↑14%
 | daily_report.py 통합 | 완료 | NFR-1 --work 옵션 + analyze_work() |
 | reporter.py 통합 | 완료 | NFR-1 send_work_summary() 추가 |
 | 단위 테스트 | 완료 | 294 tests all pass (2.75s) |
+| ai_analyzer.py 경량화 | 완료 | analyze_snapshot() 제거, Ollama 의존성 제거 |
+| snapshot_builder.py 순수화 | 완료 | AI 의존성 제거, 순수 데이터 수집만 |
+| github_collector.py | 완료 | FR-6 GitHub 데이터 수집 |
+| local_scanner.py | 완료 | FR-6 로컬 레포 스캔 |
+| snapshot_builder.py | 완료 | FR-6 프로젝트 스냅샷 조합 |
+| models.py 확장 (ProjectSnapshot) | 완료 | FR-6 스냅샷 모델 |
+| storage.py 확장 (project_snapshots) | 완료 | FR-6 스냅샷 DB |
+| Qwen 제거 + Claude Code 전환 | 완료 | NFR-2 v2.0 |
+| /daily v4.0 스킬 | 완료 | FR-7 4-Phase Pipeline |
 | E2E 테스트 | 예정 | 실제 git 데이터 파이프라인 검증 |
-| NFR-2 AI 통합 | 예정 | Ollama keyword 감지 + 하이라이트 생성 |
+| NFR-2 AI 통합 | 완료 | Qwen 제거, Claude Code 직접 분석 전환 |
 
 ## Changelog
 
 | 날짜 | 버전 | 변경 내용 | 변경 유형 | 결정 근거 |
 |------|------|-----------|----------|----------|
+| 2026-03-18 | v2.0 | 멀티소스 확장 + Qwen 제거 + /daily v4.0 통합. FR-6(스냅샷), FR-7(/daily v4.0), NFR-2(Claude Code 전환) | PRODUCT | Snapshot+Delta 패턴 — 하루 1회이므로 Claude Code 직접 분석 |
 | 2026-03-17 | v1.1 | 전체 구현 완료 (AI 미통합) — 7개 모듈 + 4개 통합 파일, 294 tests | PRODUCT | Architect 검증 APPROVED (88% match rate) |
 | 2026-03-17 | v1.0 | 최초 작성 | - | Q1 보고서 Work Stream 기간 불일치 9건 해결 필요 |

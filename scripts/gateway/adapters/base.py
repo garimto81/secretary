@@ -5,18 +5,18 @@ Channel Adapter Base Interface
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import AsyncIterator, Optional
 from datetime import datetime
 
 # 상대/절대 import 모두 지원
 try:
-    from scripts.gateway.models import NormalizedMessage, OutboundMessage, ChannelType
+    from scripts.gateway.models import ChannelType, NormalizedMessage, OutboundMessage
 except ImportError:
     try:
-        from gateway.models import NormalizedMessage, OutboundMessage, ChannelType
+        from gateway.models import ChannelType, NormalizedMessage, OutboundMessage
     except ImportError:
-        from ..models import NormalizedMessage, OutboundMessage, ChannelType
+        from ..models import ChannelType, NormalizedMessage, OutboundMessage
 
 
 @dataclass
@@ -32,10 +32,10 @@ class SendResult:
         draft_path: 초안 저장 경로 (confirmed=False 시)
     """
     success: bool
-    message_id: Optional[str] = None
-    error: Optional[str] = None
-    sent_at: Optional[datetime] = None
-    draft_path: Optional[str] = None
+    message_id: str | None = None
+    error: str | None = None
+    sent_at: datetime | None = None
+    draft_path: str | None = None
 
     def to_dict(self) -> dict:
         """딕셔너리로 변환"""
@@ -86,7 +86,7 @@ class ChannelAdapter(ABC):
             config: 어댑터 설정 딕셔너리
         """
         self.config = config
-        self.channel_type: Optional[ChannelType] = None
+        self.channel_type: ChannelType | None = None
         self._connected = False
 
     @property

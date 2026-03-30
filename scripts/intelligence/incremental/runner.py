@@ -4,14 +4,14 @@ IncrementalRunner - 증분 분석 실행기
 모든 소스의 Tracker를 실행하고 결과를 집계합니다.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Any
 
-from .analysis_state import AnalysisStateManager
-from .trackers.slack_tracker import SlackTracker
-from .trackers.gmail_tracker import GmailTracker
-from .trackers.github_tracker import GitHubTracker
 from ..context_store import IntelligenceStorage
 from ..project_registry import ProjectRegistry
+from .analysis_state import AnalysisStateManager
+from .trackers.github_tracker import GitHubTracker
+from .trackers.gmail_tracker import GmailTracker
+from .trackers.slack_tracker import SlackTracker
 
 
 class IncrementalRunner:
@@ -28,9 +28,9 @@ class IncrementalRunner:
 
     async def run(
         self,
-        project_id: Optional[str] = None,
-        sources: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        project_id: str | None = None,
+        sources: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         증분 분석 실행
 

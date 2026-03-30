@@ -8,10 +8,9 @@ IntelligenceStorage와 연동하여 CRUD 제공.
 import json
 import re
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 from .context_store import IntelligenceStorage
-
 
 DEFAULT_CONFIG_PATH = Path(r"C:\claude\secretary\config\projects.json")
 
@@ -28,7 +27,7 @@ def _word_boundary_match(term: str, text: str) -> bool:
 class ProjectRegistry:
     """프로젝트 레지스트리"""
 
-    def __init__(self, storage: IntelligenceStorage, config_path: Optional[Path] = None):
+    def __init__(self, storage: IntelligenceStorage, config_path: Path | None = None):
         self.storage = storage
         self.config_path = config_path or DEFAULT_CONFIG_PATH
 
@@ -42,7 +41,7 @@ class ProjectRegistry:
         if not self.config_path.exists():
             return 0
 
-        with open(self.config_path, "r", encoding="utf-8") as f:
+        with open(self.config_path, encoding="utf-8") as f:
             config = json.load(f)
 
         projects = config.get("projects", [])
@@ -51,15 +50,15 @@ class ProjectRegistry:
 
         return len(projects)
 
-    async def register(self, project: Dict[str, Any]) -> str:
+    async def register(self, project: dict[str, Any]) -> str:
         """프로젝트 등록"""
         return await self.storage.save_project(project)
 
-    async def get(self, project_id: str) -> Optional[Dict[str, Any]]:
+    async def get(self, project_id: str) -> dict[str, Any] | None:
         """프로젝트 조회"""
         return await self.storage.get_project(project_id)
 
-    async def list_all(self) -> List[Dict[str, Any]]:
+    async def list_all(self) -> list[dict[str, Any]]:
         """전체 프로젝트 목록"""
         return await self.storage.list_projects()
 
@@ -67,7 +66,7 @@ class ProjectRegistry:
         """프로젝트 삭제"""
         return await self.storage.delete_project(project_id)
 
-    async def find_by_channel(self, channel_id: str) -> Optional[Dict[str, Any]]:
+    async def find_by_channel(self, channel_id: str) -> dict[str, Any] | None:
         """Slack 채널 ID로 프로젝트 검색"""
         projects = await self.list_all()
         for project in projects:
@@ -76,7 +75,7 @@ class ProjectRegistry:
                 return project
         return None
 
-    async def find_by_keyword(self, text: str) -> List[Dict[str, Any]]:
+    async def find_by_keyword(self, text: str) -> list[dict[str, Any]]:
         """키워드로 프로젝트 검색 (매칭 점수 순 정렬)"""
         text_lower = text.lower()
         projects = await self.list_all()
@@ -105,7 +104,7 @@ class ProjectRegistry:
         scored.sort(key=lambda p: p["_match_score"], reverse=True)
         return scored
 
-    async def find_by_contact(self, sender_id: str) -> Optional[Dict[str, Any]]:
+    async def find_by_contact(self, sender_id: str) -> dict[str, Any] | None:
         """발신자 ID로 프로젝트 검색"""
         projects = await self.list_all()
         for project in projects:

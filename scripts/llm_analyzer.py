@@ -19,15 +19,13 @@ import argparse
 import json
 import sys
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterator
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from parsers import ClaudeCodeParser, ChatGPTParser
+from parsers import ChatGPTParser, ClaudeCodeParser
 from parsers.claude_code_parser import LLMSession
 
 # Claude Code 프로젝트 디렉토리
@@ -146,7 +144,7 @@ def format_output(sessions: list[LLMSession], stats: dict) -> str:
 
     # 프로젝트 활동
     if stats["by_project"]:
-        output.append(f"📁 프로젝트별 활동 (상위 5개)")
+        output.append("📁 프로젝트별 활동 (상위 5개)")
         for project, count in list(stats["by_project"].items())[:5]:
             output.append(f"├── {project}: {count}개 세션")
         output.append("")

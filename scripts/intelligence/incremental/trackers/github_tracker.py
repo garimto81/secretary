@@ -9,15 +9,15 @@ import asyncio
 import hashlib
 import json
 import os
-from pathlib import Path
-from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
 
-from ..analysis_state import AnalysisStateManager
 from ...context_store import IntelligenceStorage
+from ..analysis_state import AnalysisStateManager
 
 
-def _get_github_token() -> Optional[str]:
+def _get_github_token() -> str | None:
     """GitHub 토큰 로드"""
     token = os.environ.get("GITHUB_TOKEN")
     if token:
@@ -41,7 +41,7 @@ class GitHubTracker:
     async def fetch_new(
         self,
         project_id: str,
-        repos: List[str],
+        repos: list[str],
     ) -> int:
         """
         프로젝트 GitHub 레포에서 최신 활동 수집
@@ -102,13 +102,13 @@ class GitHubTracker:
     async def _fetch_api(
         self,
         endpoint: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         per_page: int = 100,
         page: int = 1,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """GitHub API 호출"""
-        import urllib.request
         import urllib.parse
+        import urllib.request
 
         query_params = {**params, "per_page": per_page, "page": page}
         query = urllib.parse.urlencode(query_params)
@@ -133,10 +133,10 @@ class GitHubTracker:
     async def _fetch_api_paginated(
         self,
         endpoint: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         max_pages: int = 3,
         per_page: int = 100,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """GitHub API 호출 (페이지네이션 지원)
 
         Args:

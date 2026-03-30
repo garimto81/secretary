@@ -83,6 +83,35 @@ class SlackFormatter:
                     )
                 lines.append("")
 
+        # GitHub 섹션
+        if summary.github_summary:
+            gh = summary.github_summary
+            lines.append("*:octocat: GitHub*")
+            lines.append(
+                f"• 오픈 PR: {gh.get('open_prs', 0)} / 오픈 이슈: {gh.get('open_issues', 0)}"
+            )
+            for attn in gh.get("attention", [])[:3]:
+                lines.append(
+                    f"• :warning: #{attn.get('number', '')} — "
+                    f"{attn.get('title', '')[:40]} ({attn.get('reason', '')})"
+                )
+            lines.append("")
+
+        # 프로젝트 진행률 섹션
+        if summary.progress_by_project:
+            lines.append("*:bar_chart: 프로젝트 진행률*")
+            for proj, pct in summary.progress_by_project.items():
+                bar = self._progress_bar(pct)
+                lines.append(f"• {proj}: {bar} {pct}%")
+            lines.append("")
+
+        # 하이라이트 섹션 (Gap 2)
+        if summary.highlights:
+            lines.append("*:sparkles: 하이라이트*")
+            for h in summary.highlights:
+                lines.append(f"• {h}")
+            lines.append("")
+
         # 활성 Work Stream 섹션
         active_streams = [
             s
@@ -99,6 +128,20 @@ class SlackFormatter:
         else:
             lines.append("*:dart: 활성 Work Stream*")
             lines.append("• 활성 스트림 없음")
+
+        # 다음 할 일 섹션 (Gap 3)
+        if summary.next_tasks:
+            lines.append("")
+            lines.append("*:calendar: 다음 할 일*")
+            for task in summary.next_tasks:
+                lines.append(f"• {task}")
+
+        # 예측 섹션
+        if summary.predictions:
+            lines.append("")
+            lines.append("*:crystal_ball: 다음 주 예측*")
+            for pred in summary.predictions:
+                lines.append(f"• {pred}")
 
         return "\n".join(lines).rstrip()
 
@@ -281,6 +324,13 @@ class SlackFormatter:
             StreamStatus.COMPLETED: "완료",
         }
         return status_map.get(stream.status, stream.status.value)
+
+    @staticmethod
+    def _progress_bar(pct: int, width: int = 10) -> str:
+        """진행률 바 생성: ████████░░"""
+        pct = max(0, min(100, pct))
+        filled = round(pct / 100 * width)
+        return "█" * filled + "░" * (width - filled)
 
     def _weekday_korean(self, date_str: str) -> str:
         """요일 한글 변환: 0=월, 1=화, ..., 6=일"""

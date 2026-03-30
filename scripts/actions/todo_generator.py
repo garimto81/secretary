@@ -28,7 +28,6 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
@@ -145,7 +144,7 @@ def extract_todos_from_github(github_data: list) -> list:
     return todos
 
 
-def generate_markdown(todos: list, date: Optional[str] = None) -> str:
+def generate_markdown(todos: list, date: str | None = None) -> str:
     """TODO 마크다운 생성"""
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
@@ -204,7 +203,7 @@ def generate_markdown(todos: list, date: Optional[str] = None) -> str:
     return "\n".join(output)
 
 
-def save_todo_file(content: str, date: Optional[str] = None) -> Path:
+def save_todo_file(content: str, date: str | None = None) -> Path:
     """TODO 파일 저장"""
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
@@ -257,7 +256,7 @@ async def append_todo_from_message(
 
         # 기존 파일이 있으면 해당 우선순위 섹션에 추가
         if output_file.exists():
-            with open(output_file, "r", encoding="utf-8") as f:
+            with open(output_file, encoding="utf-8") as f:
                 lines = f.readlines()
 
             # 우선순위 섹션 찾기
@@ -326,7 +325,7 @@ def main():
     # JSON 입력 처리
     try:
         if args.input:
-            with open(args.input, "r", encoding="utf-8") as f:
+            with open(args.input, encoding="utf-8") as f:
                 data = json.load(f)
         else:
             data = json.load(sys.stdin)

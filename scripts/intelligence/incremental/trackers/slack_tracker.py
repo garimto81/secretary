@@ -7,10 +7,9 @@ oldest 파라미터를 활용한 증분 조회.
 
 import asyncio
 import hashlib
-from typing import List, Dict, Any, Optional
 
-from ..analysis_state import AnalysisStateManager
 from ...context_store import IntelligenceStorage
+from ..analysis_state import AnalysisStateManager
 
 
 class SlackTracker:
@@ -29,7 +28,7 @@ class SlackTracker:
     async def fetch_new(
         self,
         project_id: str,
-        channels: List[str],
+        channels: list[str],
     ) -> int:
         """
         프로젝트의 Slack 채널에서 새 메시지 수집
@@ -50,40 +49,67 @@ class SlackTracker:
         return total
 
     async def _fetch_channel(self, project_id: str, channel_id: str) -> int:
-        """단일 채널에서 새 메시지 수집 (페이지네이션 + 스레드 지원)"""
+        """단일 채널에서 새 메시지 수집 (페이지네이션 + 스레드 지원)
+
+        최초 수집 (last_ts is None): cursor 기반 무제한 전체 페이지네이션 + 파일 수집
+        증분 수집 (last_ts 있음): 500건 캡, oldest 기반 신규만 수집
+        """
         await asyncio.to_thread(self._ensure_client)
 
         last_ts = await self.state_manager.get_slack_last_ts(project_id, channel_id)
+        is_initial = last_ts is None
 
-        # Pagination: fetch up to 500 messages total
         all_messages = []
-        current_last_ts = last_ts
-        max_messages = 500
 
-        while len(all_messages) < max_messages:
-            messages = await asyncio.to_thread(
-                self._client.get_history,
-                channel_id,
-                100,
-                current_last_ts,
-            )
+        if is_initial:
+            # 최초 수집: cursor 기반 전체 페이지네이션 (무제한)
+            cursor = None
+            while True:
+                messages, next_cursor = await asyncio.to_thread(
+                    self._client.get_history_with_cursor,
+                    channel_id,
+                    100,
+                    None,   # oldest=None (전체)
+                    cursor,
+                )
 
-            if not messages:
-                break
+                if not messages:
+                    break
 
-            all_messages.extend(messages)
+                all_messages.extend(messages)
 
-            # If we got fewer than 100, no more messages available
-            if len(messages) < 100:
-                break
+                if not next_cursor:
+                    break
 
-            # Update cursor for next fetch (use last message's ts)
-            current_last_ts = messages[-1].ts
+                cursor = next_cursor
+                # Slack API rate limit 준수
+                await asyncio.sleep(1.0)
+        else:
+            # 증분 수집: oldest=last_ts, 500건 캡 유지
+            current_last_ts = last_ts
+            max_messages = 500
 
-            # Stop if we've reached the cap
-            if len(all_messages) >= max_messages:
-                all_messages = all_messages[:max_messages]
-                break
+            while len(all_messages) < max_messages:
+                messages = await asyncio.to_thread(
+                    self._client.get_history,
+                    channel_id,
+                    100,
+                    current_last_ts,
+                )
+
+                if not messages:
+                    break
+
+                all_messages.extend(messages)
+
+                if len(messages) < 100:
+                    break
+
+                current_last_ts = messages[-1].ts
+
+                if len(all_messages) >= max_messages:
+                    all_messages = all_messages[:max_messages]
+                    break
 
         if not all_messages:
             return 0
@@ -116,6 +142,12 @@ class SlackTracker:
                 },
             })
             count += 1
+
+            # 최초 수집 시 파일 첨부 수집
+            if is_initial and hasattr(msg, 'files') and msg.files:
+                count += await self._save_file_entries(
+                    project_id, channel_id, msg.ts, msg.files
+                )
 
             # Fetch thread replies if this message has replies
             if hasattr(msg, 'thread_ts') and msg.thread_ts and msg.thread_ts != msg.ts:
@@ -154,5 +186,54 @@ class SlackTracker:
 
         if max_ts and max_ts != last_ts:
             await self.state_manager.save_slack_last_ts(project_id, channel_id, max_ts, count)
+
+        return count
+
+    async def _save_file_entries(
+        self,
+        project_id: str,
+        channel_id: str,
+        msg_ts: str,
+        files: list[dict],
+    ) -> int:
+        """메시지에 첨부된 파일 메타데이터를 context entry로 저장"""
+        count = 0
+        for file_obj in files:
+            file_id = file_obj.get("id", "")
+            if not file_id:
+                continue
+
+            name = file_obj.get("name") or file_obj.get("title") or "(이름 없음)"
+            filetype = file_obj.get("filetype") or file_obj.get("pretty_type") or ""
+            preview = file_obj.get("plain_text") or file_obj.get("preview") or ""
+            title = file_obj.get("title") or name
+
+            content = f"[파일] {name}"
+            if filetype:
+                content += f" ({filetype})"
+            if preview:
+                content += f"\n{preview[:2000]}"
+
+            entry_id = hashlib.sha256(
+                f"slack:file:{channel_id}:{file_id}".encode()
+            ).hexdigest()[:16]
+
+            await self.storage.save_context_entry({
+                "id": entry_id,
+                "project_id": project_id,
+                "source": "slack",
+                "source_id": file_id,
+                "entry_type": "file",
+                "title": f"Slack #{channel_id} 파일: {title}",
+                "content": content,
+                "metadata": {
+                    "channel_id": channel_id,
+                    "msg_ts": msg_ts,
+                    "file_id": file_id,
+                    "filetype": filetype,
+                    "file_name": name,
+                },
+            })
+            count += 1
 
         return count

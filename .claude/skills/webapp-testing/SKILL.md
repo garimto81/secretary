@@ -1,8 +1,6 @@
 ---
 name: webapp-testing
-description: >
-  Docker 환경에서 Playwright E2E 테스트 실행.
-  브라우저 미종료 문제 해결, 스크린샷, 로그 캡처 지원.
+description: "DEPRECATED: playwright-wrapper로 흡수 통합됨. Docker 환경 Playwright E2E 테스트 — 스크린샷, 로그 캡처."
 version: 2.0.0
 
 triggers:
@@ -226,4 +224,4 @@ page.wait_for_selector('[data-testid="app-loaded"]')
 
 - `/check` - 린트 + 테스트 실행
 - `/parallel test` - 병렬 테스트
-- `debugging-workflow` - 테스트 실패 시 디버깅
+- `/debug` - 테스트 실패 시 디버깅

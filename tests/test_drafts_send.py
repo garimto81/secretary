@@ -47,13 +47,13 @@ class TestResolveChannelType:
         result = _resolve_channel_type("gmail")
         assert result == ChannelType.EMAIL
 
-    def test_telegram_channel(self):
-        """Telegram 채널 타입 변환"""
+    def test_github_channel(self):
+        """GitHub 채널 타입 변환"""
         from scripts.gateway.models import ChannelType
         from scripts.intelligence.cli import _resolve_channel_type
 
-        result = _resolve_channel_type("telegram")
-        assert result == ChannelType.TELEGRAM
+        result = _resolve_channel_type("github")
+        assert result == ChannelType.GITHUB
 
     def test_unknown_channel_returns_unknown(self):
         """알 수 없는 채널은 UNKNOWN 반환"""

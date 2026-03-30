@@ -253,10 +253,10 @@ Phase:    D2_PLAN (검증 설계)
 
 ## 통합 워크플로우
 
-### /work 실패 시 자동 트리거
+### /auto 실패 시 자동 트리거
 
 ```
-/work 실행
+/auto 실행
     ↓
 E2E 테스트 실패
     ↓
@@ -264,7 +264,7 @@ E2E 테스트 실패
     ↓
 [가설-검증 사이클]
     ↓
-D4 도달 → 수정 후 /work 재개
+D4 도달 → 수정 후 /auto 재개
 ```
 
 ### /issue fix 통합
@@ -285,7 +285,7 @@ D4 도달 → 수정 진행
 
 ## 상태 관리 스크립트
 
-`D:\AI\claude01\.claude\skills\debugging-workflow\scripts\debug_state.py`
+`debug_state.py` (인라인 구현)
 
 ```python
 from debug_state import DebugState
@@ -318,5 +318,5 @@ state.abort()
 ## Related
 
 - `/issue failed` - 3회 가설 기각 시 에스컬레이션
-- `/work` - E2E 실패 시 자동 트리거
-- `debugging-workflow` 스킬 - Phase D0-D4 상세
+- `/auto` - E2E 실패 시 자동 트리거
+- `/debug` 커맨드 - Phase D0-D4 상세

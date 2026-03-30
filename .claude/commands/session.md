@@ -131,9 +131,9 @@ Subcommands:
 |------|------|------|
 | 세션 상태 | `.claude/sessions/*.md` | 저장된 세션 상태 |
 | 컴팩트 | `.claude/compacts/*.md` | 압축된 세션 요약 |
-| 학습 기록 | `.omc/notepads/*/learnings.md` | 기술 발견/패턴 |
-| 결정 기록 | `.omc/notepads/*/decisions.md` | 아키텍처/설계 결정 |
-| 이슈 기록 | `.omc/notepads/*/issues.md` | 알려진 이슈/해결책 |
+| 학습 기록 | `docs/notepads/*/learnings.md` | 기술 발견/패턴 |
+| 결정 기록 | `docs/notepads/*/decisions.md` | 아키텍처/설계 결정 |
+| 이슈 기록 | `docs/notepads/*/issues.md` | 알려진 이슈/해결책 |
 
 ### 동작 방식
 
@@ -147,7 +147,7 @@ Subcommands:
 ```
 🔍 "JWT" 검색 결과 (3건)
 
-📄 .omc/notepads/auth-feature/decisions.md (2026-02-05)
+📄 docs/notepads/auth-feature/decisions.md (2026-02-05)
   > JWT 대신 Supabase Auth 사용 결정
   > 이유: 관리 비용 절감, RLS 연동 용이
 
@@ -155,7 +155,7 @@ Subcommands:
   > JWT 토큰 발급 로직 구현 진행 중
   > refresh token은 다음 PR에서 처리
 
-📄 .omc/notepads/api-design/learnings.md (2026-01-28)
+📄 docs/notepads/api-design/learnings.md (2026-01-28)
   > JWT 만료 시간은 24시간이 적절
 ```
 
@@ -364,7 +364,7 @@ Subcommands:
 
 ## Related
 
-- `/work` - 전체 워크플로우
+- `/auto` - 전체 워크플로우
 - `/create pr` - PR 생성 (여정 자동 포함)
 - `/commit` - 커밋 생성
 

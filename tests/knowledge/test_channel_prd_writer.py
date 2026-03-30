@@ -1,8 +1,7 @@
 """ChannelPRDWriter 단위 테스트"""
-import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -69,7 +68,7 @@ class TestChannelPRDWriterWrite:
     async def test_write_force_overwrites(self, tmp_path, mastery_context):
         """force=True 시 기존 파일 덮어쓰기 (Claude 응답에 섹션 보완 포함)"""
         with patch("scripts.knowledge.channel_prd_writer.CHANNEL_DOCS_DIR", tmp_path):
-            from scripts.knowledge.channel_prd_writer import ChannelPRDWriter, REQUIRED_SECTIONS
+            from scripts.knowledge.channel_prd_writer import REQUIRED_SECTIONS, ChannelPRDWriter
 
             writer = ChannelPRDWriter()
             existing = tmp_path / "C_FORCE.md"
@@ -197,7 +196,7 @@ class TestChannelPRDWriterFallback:
 class TestChannelPRDWriterSectionValidation:
     def test_validate_sections_complete(self):
         """모든 섹션 있으면 빈 목록 반환"""
-        from scripts.knowledge.channel_prd_writer import ChannelPRDWriter, REQUIRED_SECTIONS
+        from scripts.knowledge.channel_prd_writer import REQUIRED_SECTIONS, ChannelPRDWriter
 
         writer = ChannelPRDWriter()
         content = "\n".join(REQUIRED_SECTIONS)
@@ -218,7 +217,7 @@ class TestChannelPRDWriterSectionValidation:
     async def test_write_completes_partial_claude_output(self, tmp_path, mastery_context):
         """Claude가 부분 응답 반환 시 누락 섹션 자동 보완"""
         with patch("scripts.knowledge.channel_prd_writer.CHANNEL_DOCS_DIR", tmp_path):
-            from scripts.knowledge.channel_prd_writer import ChannelPRDWriter, REQUIRED_SECTIONS
+            from scripts.knowledge.channel_prd_writer import REQUIRED_SECTIONS, ChannelPRDWriter
 
             writer = ChannelPRDWriter()
             partial_output = (

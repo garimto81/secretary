@@ -14,6 +14,10 @@ Usage:
     python cli.py drafts log [--limit N] [--json]
     python cli.py stats [--json]
     python cli.py cleanup [--days N] [--dry-run]
+    python cli.py learn --project ID --source gmail|slack [--label L] [--channel C] [--limit N]
+    python cli.py search --project ID "query" [--source gmail|slack] [--limit N] [--json]
+    python cli.py knowledge stats [--project ID] [--json]
+    python cli.py knowledge cleanup [--days N] [--dry-run]
 """
 
 import argparse
@@ -31,6 +35,9 @@ if str(_project_root) not in sys.path:
 # Windows 콘솔 UTF-8
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+
+REASON_CHOICES = ["부정확함", "어조부적절", "누락정보", "반복", "기타"]
 
 
 async def get_storage():
@@ -170,7 +177,18 @@ async def cmd_drafts_approve(args):
             reviewer_note=args.note,
         )
         if success:
-            print(f"초안 #{args.id} 승인 완료")
+            reason = getattr(args, "reason", None)
+            modification = getattr(args, "modification", None)
+            from scripts.intelligence.feedback_store import FeedbackStore
+            fb_store = FeedbackStore(storage)
+            await fb_store.save_feedback(
+                draft_id=int(args.id),
+                decision="approved",
+                reason=reason,
+                modification_summary=modification,
+            )
+            reason_info = f" (사유: {reason})" if reason else ""
+            print(f"초안 #{args.id} 승인 완료{reason_info}")
         else:
             print("승인 실패")
     finally:
@@ -187,7 +205,18 @@ async def cmd_drafts_reject(args):
             reviewer_note=args.note,
         )
         if success:
-            print(f"초안 #{args.id} 거부 완료")
+            reason = getattr(args, "reason", None)
+            modification = getattr(args, "modification", None)
+            from scripts.intelligence.feedback_store import FeedbackStore
+            fb_store = FeedbackStore(storage)
+            await fb_store.save_feedback(
+                draft_id=int(args.id),
+                decision="rejected",
+                reason=reason,
+                modification_summary=modification,
+            )
+            reason_info = f" (사유: {reason})" if reason else ""
+            print(f"초안 #{args.id} 거부 완료{reason_info}")
         else:
             print("거부 실패")
     finally:
@@ -216,7 +245,7 @@ async def cmd_drafts_send(args):
         draft_text = draft.get("draft_text", "")
         preview = draft_text[:200] + "..." if len(draft_text) > 200 else draft_text
 
-        print(f"\n전송 정보:")
+        print("\n전송 정보:")
         print(f"  채널: {channel}")
         print(f"  수신: {recipient_name} ({recipient})")
         print(f"  내용: {preview}")
@@ -324,7 +353,7 @@ def _resolve_channel_type(source_channel: str):
         "slack": ChannelType.SLACK,
         "email": ChannelType.EMAIL,
         "gmail": ChannelType.EMAIL,
-        "telegram": ChannelType.TELEGRAM,
+        "github": ChannelType.GITHUB,
     }
     return mapping.get(source_channel.lower(), ChannelType.UNKNOWN)
 
@@ -407,8 +436,8 @@ async def cmd_save_draft(args):
         # 파일 저장
         draft_file = args.file
         if not draft_file and args.text:
-            from pathlib import Path
             from datetime import datetime
+            from pathlib import Path
 
             drafts_dir = Path(r"C:\claude\secretary\data\drafts")
             drafts_dir.mkdir(parents=True, exist_ok=True)
@@ -487,6 +516,132 @@ async def cmd_cleanup(args):
         await storage.close()
 
 
+async def cmd_learn(args):
+    """Knowledge Store 초기 학습"""
+    from scripts.knowledge.bootstrap import KnowledgeBootstrap
+    from scripts.knowledge.store import KnowledgeStore
+
+    store = KnowledgeStore()
+    await store.init_db()
+
+    bootstrap = KnowledgeBootstrap(store)
+
+    if args.source == "gmail":
+        result = await bootstrap.learn_gmail(
+            project_id=args.project,
+            label=args.label,
+            query=args.query,
+            limit=args.limit,
+        )
+    elif args.source == "slack":
+        if not args.channel:
+            print("Slack 학습에는 --channel이 필요합니다")
+            sys.exit(1)
+        result = await bootstrap.learn_slack(
+            project_id=args.project,
+            channel_id=args.channel,
+            limit=args.limit,
+        )
+    else:
+        print(f"지원하지 않는 소스: {args.source}")
+        sys.exit(1)
+
+    print(f"\n학습 완료 ({result.elapsed_seconds:.1f}초):")
+    print(f"  프로젝트: {result.project_id}")
+    print(f"  소스: {result.source}")
+    print(f"  수집: {result.total_fetched}건")
+    print(f"  저장: {result.total_ingested}건")
+    print(f"  중복: {result.duplicates_skipped}건")
+    if result.errors > 0:
+        print(f"  오류: {result.errors}건")
+
+
+async def cmd_search(args):
+    """Knowledge Store 검색"""
+    from scripts.knowledge.store import KnowledgeStore
+
+    store = KnowledgeStore()
+    await store.init_db()
+
+    results = await store.search(
+        query=args.query,
+        project_id=args.project,
+        source=args.source,
+        limit=args.limit,
+    )
+
+    if not results:
+        print("검색 결과 없음")
+        return
+
+    if args.json:
+        output = []
+        for r in results:
+            output.append({
+                "id": r.document.id,
+                "source": r.document.source,
+                "sender": r.document.sender_name,
+                "subject": r.document.subject,
+                "content": r.document.content[:500],
+                "score": r.score,
+                "created_at": r.document.created_at.isoformat() if r.document.created_at else None,
+            })
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+    else:
+        print(f"검색 결과 {len(results)}건:\n")
+        for i, r in enumerate(results, 1):
+            doc = r.document
+            date_str = doc.created_at.strftime("%Y-%m-%d") if doc.created_at else "?"
+            source_icon = "📧" if doc.source == "gmail" else "💬"
+            print(f"  {i}. {source_icon} [{date_str}] {doc.sender_name}")
+            if doc.subject:
+                print(f"     제목: {doc.subject}")
+            content_preview = doc.content[:200].replace("\n", " ")
+            print(f"     {content_preview}")
+            print(f"     (score: {r.score:.2f})")
+            print()
+
+
+async def cmd_knowledge_stats(args):
+    """Knowledge Store 통계"""
+    from scripts.knowledge.store import KnowledgeStore
+
+    store = KnowledgeStore()
+    await store.init_db()
+
+    stats = await store.get_stats(project_id=args.project)
+
+    if args.json:
+        print(json.dumps(stats, ensure_ascii=False, indent=2))
+    else:
+        print("Knowledge Store 통계:")
+        if "projects" in stats:
+            for proj, proj_stats in stats.get("projects", {}).items():
+                print(f"\n  [{proj}]")
+                print(f"    총 문서: {proj_stats.get('total', 0)}건")
+                for source, count in proj_stats.get("by_source", {}).items():
+                    print(f"    {source}: {count}건")
+        else:
+            print(f"  총 문서: {stats.get('total', 0)}건")
+            for source, count in stats.get("by_source", {}).items():
+                print(f"  {source}: {count}건")
+
+
+async def cmd_knowledge_cleanup(args):
+    """Knowledge Store 정리"""
+    from scripts.knowledge.store import KnowledgeStore
+
+    store = KnowledgeStore()
+    await store.init_db()
+
+    deleted = await store.cleanup(retention_days=args.days)
+
+    mode = "[DRY RUN] " if args.dry_run else ""
+    print(f"{mode}정리 결과: {deleted}건 삭제")
+    if args.dry_run:
+        print("실제 삭제하려면 --dry-run 옵션을 제거하세요.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Project Intelligence CLI",
@@ -525,11 +680,15 @@ def main():
     approve_parser = drafts_sub.add_parser("approve", help="초안 승인")
     approve_parser.add_argument("id", help="초안 ID")
     approve_parser.add_argument("--note", default="", help="리뷰 노트")
+    approve_parser.add_argument("--reason", choices=REASON_CHOICES, default=None, help="승인 사유")
+    approve_parser.add_argument("--modification", default=None, help="수정 내용 요약")
 
     # drafts reject
     reject_parser = drafts_sub.add_parser("reject", help="초안 거부")
     reject_parser.add_argument("id", help="초안 ID")
     reject_parser.add_argument("--note", default="", help="리뷰 노트")
+    reject_parser.add_argument("--reason", choices=REASON_CHOICES, default=None, help="거부 사유")
+    reject_parser.add_argument("--modification", default=None, help="수정 내용 요약")
 
     # drafts send
     send_parser = drafts_sub.add_parser("send", help="승인된 초안 전송")
@@ -562,6 +721,35 @@ def main():
     cleanup_parser = subparsers.add_parser("cleanup", help="오래된 데이터 정리")
     cleanup_parser.add_argument("--days", type=int, default=90, help="보관 기간 (기본 90일)")
     cleanup_parser.add_argument("--dry-run", action="store_true", help="삭제하지 않고 건수만 확인")
+
+    # learn
+    learn_parser = subparsers.add_parser("learn", help="Knowledge Store 초기 학습")
+    learn_parser.add_argument("--project", required=True, help="프로젝트 ID")
+    learn_parser.add_argument("--source", required=True, choices=["gmail", "slack"], help="소스")
+    learn_parser.add_argument("--label", help="Gmail 라벨")
+    learn_parser.add_argument("--query", help="Gmail 검색 쿼리")
+    learn_parser.add_argument("--channel", help="Slack 채널 ID")
+    learn_parser.add_argument("--limit", type=int, default=100, help="최대 수집 수")
+
+    # search
+    search_parser = subparsers.add_parser("search", help="Knowledge Store 검색")
+    search_parser.add_argument("query", help="검색 쿼리")
+    search_parser.add_argument("--project", required=True, help="프로젝트 ID")
+    search_parser.add_argument("--source", choices=["gmail", "slack"], help="소스 필터")
+    search_parser.add_argument("--limit", type=int, default=10, help="최대 결과 수")
+    search_parser.add_argument("--json", action="store_true", help="JSON 출력")
+
+    # knowledge
+    knowledge_parser = subparsers.add_parser("knowledge", help="Knowledge Store 관리")
+    knowledge_sub = knowledge_parser.add_subparsers(dest="knowledge_command")
+
+    stats_k_parser = knowledge_sub.add_parser("stats", help="통계 조회")
+    stats_k_parser.add_argument("--project", help="프로젝트 필터")
+    stats_k_parser.add_argument("--json", action="store_true", help="JSON 출력")
+
+    kcleanup_parser = knowledge_sub.add_parser("cleanup", help="오래된 문서 정리")
+    kcleanup_parser.add_argument("--days", type=int, default=180, help="보관 기간")
+    kcleanup_parser.add_argument("--dry-run", action="store_true", help="삭제하지 않고 건수만 확인")
 
     args = parser.parse_args()
 
@@ -596,6 +784,17 @@ def main():
         asyncio.run(cmd_stats(args))
     elif args.command == "cleanup":
         asyncio.run(cmd_cleanup(args))
+    elif args.command == "learn":
+        asyncio.run(cmd_learn(args))
+    elif args.command == "search":
+        asyncio.run(cmd_search(args))
+    elif args.command == "knowledge":
+        if hasattr(args, "knowledge_command") and args.knowledge_command == "stats":
+            asyncio.run(cmd_knowledge_stats(args))
+        elif hasattr(args, "knowledge_command") and args.knowledge_command == "cleanup":
+            asyncio.run(cmd_knowledge_cleanup(args))
+        else:
+            knowledge_parser.print_help()
 
 
 if __name__ == "__main__":

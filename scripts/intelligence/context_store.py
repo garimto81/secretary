@@ -9,11 +9,11 @@ SQLite WAL mode, 4 테이블:
 """
 
 import json
-import aiosqlite
-from pathlib import Path
-from typing import List, Optional, Dict, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
+import aiosqlite
 
 DEFAULT_DB_PATH = Path(r"C:\claude\secretary\data\intelligence.db")
 
@@ -100,9 +100,9 @@ class IntelligenceStorage:
     WAL mode로 Gateway(async writer)와 CLI(reader) 동시 접근 지원.
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
-        self._connection: Optional[aiosqlite.Connection] = None
+        self._connection: aiosqlite.Connection | None = None
 
     async def __aenter__(self):
         await self.connect()
@@ -119,15 +119,46 @@ class IntelligenceStorage:
         self._connection.row_factory = aiosqlite.Row
 
         await self._connection.execute("PRAGMA journal_mode=WAL")
+        await self._connection.execute("PRAGMA foreign_keys=ON")
         await self._connection.executescript(SCHEMA)
         await self._connection.commit()
         await self._migrate_draft_columns()
+        await self._migrate_feedback_table()
+
+    async def _migrate_feedback_table(self):
+        """feedback_responses 테이블 추가 (멱등)"""
+        migrations = [
+            """CREATE TABLE IF NOT EXISTS feedback_responses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                draft_id INTEGER NOT NULL UNIQUE,
+                decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),
+                reason TEXT,
+                modification_summary TEXT,
+                feedback_quality_score INTEGER DEFAULT 5
+                    CHECK (feedback_quality_score IS NULL OR feedback_quality_score BETWEEN 1 AND 5),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (draft_id) REFERENCES draft_responses(id) ON DELETE CASCADE
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_feedback_draft ON feedback_responses(draft_id)",
+            "CREATE INDEX IF NOT EXISTS idx_feedback_decision ON feedback_responses(decision)",
+            "CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback_responses(created_at DESC)",
+        ]
+        for sql in migrations:
+            try:
+                await self._connection.execute(sql)
+                await self._connection.commit()
+            except Exception as e:
+                if "already exists" in str(e).lower():
+                    pass
+                else:
+                    raise
 
     async def _migrate_draft_columns(self):
         """draft_responses에 전송 관련 컬럼 추가 (멱등)"""
         migrations = [
             "ALTER TABLE draft_responses ADD COLUMN sent_at DATETIME",
             "ALTER TABLE draft_responses ADD COLUMN send_error TEXT",
+            "ALTER TABLE draft_responses ADD COLUMN ollama_reasoning TEXT",
         ]
         for sql in migrations:
             try:
@@ -142,7 +173,10 @@ class IntelligenceStorage:
     async def close(self) -> None:
         """DB 연결 종료"""
         if self._connection:
-            await self._connection.close()
+            try:
+                await self._connection.close()
+            except Exception:
+                pass
             self._connection = None
 
     def _ensure_connected(self):
@@ -153,7 +187,7 @@ class IntelligenceStorage:
     # Projects
     # ==========================================
 
-    async def save_project(self, project: Dict[str, Any]) -> str:
+    async def save_project(self, project: dict[str, Any]) -> str:
         """프로젝트 저장 (upsert)"""
         self._ensure_connected()
 
@@ -178,7 +212,7 @@ class IntelligenceStorage:
         await self._connection.commit()
         return project["id"]
 
-    async def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
+    async def get_project(self, project_id: str) -> dict[str, Any] | None:
         """프로젝트 조회"""
         self._ensure_connected()
 
@@ -190,7 +224,7 @@ class IntelligenceStorage:
                 return self._row_to_project(row)
             return None
 
-    async def list_projects(self) -> List[Dict[str, Any]]:
+    async def list_projects(self) -> list[dict[str, Any]]:
         """전체 프로젝트 목록"""
         self._ensure_connected()
 
@@ -208,7 +242,7 @@ class IntelligenceStorage:
         await self._connection.commit()
         return True
 
-    def _row_to_project(self, row) -> Dict[str, Any]:
+    def _row_to_project(self, row) -> dict[str, Any]:
         data = dict(row)
         for field in ("github_repos", "slack_channels", "gmail_queries", "keywords", "contacts"):
             if data.get(field) and isinstance(data[field], str):
@@ -222,7 +256,7 @@ class IntelligenceStorage:
     # Context Entries
     # ==========================================
 
-    async def save_context_entry(self, entry: Dict[str, Any]) -> str:
+    async def save_context_entry(self, entry: dict[str, Any]) -> str:
         """컨텍스트 항목 저장 (upsert)"""
         self._ensure_connected()
 
@@ -248,10 +282,10 @@ class IntelligenceStorage:
     async def get_context_entries(
         self,
         project_id: str,
-        source: Optional[str] = None,
-        entry_type: Optional[str] = None,
+        source: str | None = None,
+        entry_type: str | None = None,
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """프로젝트별 컨텍스트 항목 조회"""
         self._ensure_connected()
 
@@ -290,7 +324,7 @@ class IntelligenceStorage:
         checkpoint_key: str,
         checkpoint_value: str,
         entries_collected: int = 0,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         """분석 상태 체크포인트 저장"""
         self._ensure_connected()
@@ -320,7 +354,7 @@ class IntelligenceStorage:
         project_id: str,
         source: str,
         checkpoint_key: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """분석 상태 조회"""
         self._ensure_connected()
 
@@ -338,12 +372,12 @@ class IntelligenceStorage:
     # Draft Responses
     # ==========================================
 
-    async def save_draft(self, draft: Dict[str, Any]) -> int:
+    async def save_draft(self, draft: dict[str, Any]) -> int:
         """응답 초안 저장"""
         self._ensure_connected()
 
         cursor = await self._connection.execute(
-            """INSERT INTO draft_responses
+            """INSERT OR REPLACE INTO draft_responses
             (project_id, source_channel, source_message_id, sender_id, sender_name,
              original_text, draft_text, draft_file, match_confidence, match_tier,
              match_status, status)
@@ -366,7 +400,7 @@ class IntelligenceStorage:
         await self._connection.commit()
         return cursor.lastrowid
 
-    async def get_draft(self, draft_id: int) -> Optional[Dict[str, Any]]:
+    async def get_draft(self, draft_id: int) -> dict[str, Any] | None:
         """초안 조회"""
         self._ensure_connected()
 
@@ -380,11 +414,11 @@ class IntelligenceStorage:
 
     async def list_drafts(
         self,
-        status: Optional[str] = None,
-        match_status: Optional[str] = None,
-        project_id: Optional[str] = None,
+        status: str | None = None,
+        match_status: str | None = None,
+        project_id: str | None = None,
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """초안 목록 조회"""
         self._ensure_connected()
 
@@ -412,7 +446,7 @@ class IntelligenceStorage:
         self,
         draft_id: int,
         status: str,
-        reviewer_note: Optional[str] = None,
+        reviewer_note: str | None = None,
     ) -> bool:
         """초안 상태 업데이트 (approve/reject)"""
         self._ensure_connected()
@@ -429,7 +463,7 @@ class IntelligenceStorage:
     async def update_draft_sent(
         self,
         draft_id: int,
-        message_id: Optional[str] = None,
+        message_id: str | None = None,
     ) -> bool:
         """전송 성공 기록"""
         self._ensure_connected()
@@ -468,9 +502,9 @@ class IntelligenceStorage:
 
     async def get_awaiting_drafts(
         self,
-        project_id: Optional[str] = None,
+        project_id: str | None = None,
         limit: int = 20,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """매칭되었지만 draft 미생성 메시지 조회"""
         self._ensure_connected()
 
@@ -493,7 +527,7 @@ class IntelligenceStorage:
         self,
         draft_id: int,
         draft_text: str,
-        draft_file: Optional[str] = None,
+        draft_file: str | None = None,
     ) -> bool:
         """awaiting_draft 메시지에 draft 텍스트 저장, 상태를 pending으로 전환"""
         self._ensure_connected()
@@ -507,7 +541,7 @@ class IntelligenceStorage:
         await self._connection.commit()
         return True
 
-    async def get_pending_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
+    async def get_pending_messages(self, limit: int = 50) -> list[dict[str, Any]]:
         """미매칭 pending 메시지 조회"""
         self._ensure_connected()
 
@@ -524,7 +558,7 @@ class IntelligenceStorage:
         self,
         source_channel: str,
         source_message_id: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """source_channel + source_message_id로 draft 조회 (중복 체크용)"""
         self._ensure_connected()
 
@@ -543,7 +577,7 @@ class IntelligenceStorage:
         self,
         retention_days: int = 90,
         dry_run: bool = False,
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """오래된 context_entries 및 draft_responses 정리
 
         Returns:
@@ -608,7 +642,7 @@ class IntelligenceStorage:
     # Statistics
     # ==========================================
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """통계 조회"""
         self._ensure_connected()
 

@@ -2,7 +2,7 @@
 
 **Version**: 1.0.0
 **Created**: 2026-02-02
-**Status**: DRAFT
+**Status**: SUPERSEDED (Gateway 구현 완료. Telegram/WhatsApp/Discord/KakaoTalk 제거 → Slack/Gmail/GitHub 3채널로 확정. 2026-02-18)
 **Reference**: OpenClaw Architecture Study
 
 ---

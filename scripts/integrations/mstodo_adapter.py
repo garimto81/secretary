@@ -21,14 +21,11 @@ Safety Rules:
 
 import argparse
 import json
-import re
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List
-from urllib.parse import quote
 
 # Windows console UTF-8
 if sys.platform == "win32":
@@ -45,10 +42,10 @@ except ImportError:
 # Import auth module
 from mstodo_auth import (
     get_access_token,
-    login as auth_login,
-    TOKEN_FILE,
 )
-
+from mstodo_auth import (
+    login as auth_login,
+)
 
 # Microsoft Graph API
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
@@ -73,14 +70,14 @@ CONFIG_FILE = Path(r"C:\claude\secretary\config\mstodo.json")
 class TodoItem:
     """MS To Do item data model"""
     title: str
-    body: Optional[str] = None
-    due_date: Optional[date] = None
+    body: str | None = None
+    due_date: date | None = None
     importance: str = "normal"  # low, normal, high
     list_type: TodoList = TodoList.PERSONAL
 
     # Duplicate detection fields
     source: str = "secretary"
-    source_id: Optional[str] = None
+    source_id: str | None = None
 
 
 @dataclass
@@ -95,10 +92,10 @@ class MSTodoConfig:
             return cls()
 
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
                 data = json.load(f)
             return cls(list_ids=data.get("list_ids", {}))
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return cls()
 
     def save(self) -> None:
@@ -121,7 +118,7 @@ class MSTodoAdapter:
 
     def __init__(self):
         self.config = MSTodoConfig.load()
-        self._client: Optional[httpx.Client] = None
+        self._client: httpx.Client | None = None
 
     def _get_client(self) -> httpx.Client:
         """Get HTTP client with auth header"""
@@ -154,7 +151,7 @@ class MSTodoAdapter:
         response.raise_for_status()
         return response.json()
 
-    def get_lists(self) -> List[dict]:
+    def get_lists(self) -> list[dict]:
         """
         Get all To Do lists
 
@@ -217,7 +214,7 @@ class MSTodoAdapter:
         print(f"Created list: {target_name}")
         return list_id
 
-    def get_tasks(self, list_type: TodoList, include_completed: bool = False) -> List[dict]:
+    def get_tasks(self, list_type: TodoList, include_completed: bool = False) -> list[dict]:
         """
         Get tasks from a list
 

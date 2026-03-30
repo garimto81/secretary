@@ -1,13 +1,15 @@
 ---
 name: commit
-description: Conventional Commit 형식으로 git 커밋 생성 및 push
+description: >
+  Create git commits in Conventional Commit format with optional push. Triggers on "commit", "커밋", "git commit", "push". Use when the user wants to save work, create a commit message, or push changes to remote.
 version: 2.0.0
 triggers:
   keywords:
-    - "commit"
-    - "커밋"
-    - "git commit"
     - "/commit"
+    - "커밋 생성"
+    - "git commit"
+    - "변경사항 커밋"
+auto_trigger: false
 ---
 
 # /commit - Conventional Commit & Push
@@ -42,7 +44,7 @@ git log --oneline -5         # 최근 커밋 스타일 확인
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
 **타입:**
@@ -68,7 +70,7 @@ git commit -m "$(cat <<'EOF'
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
 )"
 ```

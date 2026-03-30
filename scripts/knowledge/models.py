@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 
 @dataclass
@@ -19,7 +18,7 @@ class KnowledgeDocument:
     thread_id: str = ""
     content_type: str = "message"    # "message", "email", "thread_summary"
     metadata: dict = field(default_factory=dict)
-    created_at: Optional[datetime] = None
+    created_at: datetime | None = None
 
 
 @dataclass
@@ -37,9 +36,9 @@ class ChannelProfile:
     channel_name: str
     topic: str = ""
     purpose: str = ""
-    created: Optional[datetime] = None
+    created: datetime | None = None
     members: list = field(default_factory=list)
     pinned_messages: list = field(default_factory=list)
-    collected_at: Optional[datetime] = None
+    collected_at: datetime | None = None
     total_messages: int = 0
     total_threads: int = 0

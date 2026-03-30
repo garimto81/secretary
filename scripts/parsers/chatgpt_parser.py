@@ -6,10 +6,10 @@ Parses ChatGPT conversation exports (conversations.json format)
 """
 
 import json
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 
 @dataclass
@@ -41,7 +41,7 @@ class ChatGPTParser:
             return
 
         try:
-            with open(self.export_file, "r", encoding="utf-8") as f:
+            with open(self.export_file, encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as e:
             print(f"Error: ChatGPT export 파일 읽기 실패: {e}")
@@ -50,7 +50,7 @@ class ChatGPTParser:
         # conversations.json은 보통 대화 리스트를 포함
         conversations = data if isinstance(data, list) else [data]
 
-        cutoff_time = datetime.now(timezone.utc).timestamp() - (days * 24 * 3600)
+        cutoff_time = datetime.now(UTC).timestamp() - (days * 24 * 3600)
 
         for conv in conversations:
             session = self._parse_conversation(conv)
@@ -67,9 +67,9 @@ class ChatGPTParser:
             if not create_time:
                 return None
 
-            start_time = datetime.fromtimestamp(create_time, tz=timezone.utc)
+            start_time = datetime.fromtimestamp(create_time, tz=UTC)
             end_time = (
-                datetime.fromtimestamp(update_time, tz=timezone.utc)
+                datetime.fromtimestamp(update_time, tz=UTC)
                 if update_time
                 else start_time
             )

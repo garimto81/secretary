@@ -166,7 +166,7 @@ async def handle_client(websocket, path, db_path: Path):
 
 async def start_server(port: int, db_path: Path):
     """WebSocket 서버 시작"""
-    print(f"🚀 Notification Receiver 시작")
+    print("🚀 Notification Receiver 시작")
     print(f"├── Port: {port}")
     print(f"└── Database: {db_path}")
 

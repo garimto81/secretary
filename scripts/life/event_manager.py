@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
 
 # Windows UTF-8 설정
 if sys.platform == "win32":
@@ -51,7 +50,7 @@ class LifeEvent:
     month: int
     day: int
     is_lunar: bool = False
-    reminder_days: List[int] = field(default_factory=lambda: [14, 7, 3])
+    reminder_days: list[int] = field(default_factory=lambda: [14, 7, 3])
 
     def to_dict(self) -> dict:
         """딕셔너리로 변환"""
@@ -99,7 +98,7 @@ class LifeEventManager:
     - D-N 리마인더 생성
     """
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """
         초기화
 
@@ -107,7 +106,7 @@ class LifeEventManager:
             config_path: 설정 파일 경로 (기본: config/life_events.json)
         """
         self.config_path = config_path or CONFIG_FILE
-        self.events: List[LifeEvent] = []
+        self.events: list[LifeEvent] = []
         self._load_events()
 
     def _load_events(self) -> None:
@@ -118,7 +117,7 @@ class LifeEventManager:
         # 설정 파일에서 사용자 이벤트 로드
         if self.config_path.exists():
             try:
-                with open(self.config_path, "r", encoding="utf-8") as f:
+                with open(self.config_path, encoding="utf-8") as f:
                     config = json.load(f)
 
                 # 명절 설정 확인
@@ -153,7 +152,7 @@ class LifeEventManager:
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Warning: 설정 파일 파싱 오류 - {e}", file=sys.stderr)
 
-    def _get_event_date(self, event: LifeEvent, year: int) -> Optional[date]:
+    def _get_event_date(self, event: LifeEvent, year: int) -> date | None:
         """
         이벤트의 해당 연도 날짜 계산
 
@@ -172,7 +171,7 @@ class LifeEventManager:
             except ValueError:
                 return None
 
-    def get_upcoming_events(self, days: int = 30) -> List[dict]:
+    def get_upcoming_events(self, days: int = 30) -> list[dict]:
         """
         앞으로 N일 내 이벤트 조회
 
@@ -220,7 +219,7 @@ class LifeEventManager:
         upcoming.sort(key=lambda x: x["days_until"])
         return upcoming
 
-    def get_reminders_for_today(self) -> List[dict]:
+    def get_reminders_for_today(self) -> list[dict]:
         """
         오늘 발송해야 할 리마인더 목록 생성
 
@@ -282,7 +281,7 @@ class LifeEventManager:
         day: int,
         event_type: str = "anniversary",
         is_lunar: bool = False,
-        reminder_days: Optional[List[int]] = None,
+        reminder_days: list[int] | None = None,
     ) -> bool:
         """
         새 이벤트 추가
@@ -329,7 +328,7 @@ class LifeEventManager:
         try:
             # 기존 설정 로드
             if self.config_path.exists():
-                with open(self.config_path, "r", encoding="utf-8") as f:
+                with open(self.config_path, encoding="utf-8") as f:
                     config = json.load(f)
             else:
                 config = {
@@ -355,7 +354,7 @@ class LifeEventManager:
             print(f"Error: 이벤트 저장 실패 - {e}", file=sys.stderr)
             return False
 
-    def list_all_events(self) -> List[dict]:
+    def list_all_events(self) -> list[dict]:
         """
         모든 등록된 이벤트 목록 반환
 

@@ -4,10 +4,7 @@ Server 테스트
 
 import json
 import sys
-import tempfile
 from pathlib import Path
-
-import pytest
 
 # 프로젝트 루트 경로 추가
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))

@@ -13,21 +13,20 @@ Features:
 import asyncio
 import json
 import re
-import sys
+from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator, Optional, Dict
 
 # 상대/절대 import 모두 지원
 try:
-    from scripts.gateway.models import NormalizedMessage, ChannelType, MessageType
     from scripts.gateway.adapters.base import ChannelAdapter, SendResult
+    from scripts.gateway.models import ChannelType, MessageType, NormalizedMessage
 except ImportError:
     try:
-        from gateway.models import NormalizedMessage, ChannelType, MessageType
         from gateway.adapters.base import ChannelAdapter, SendResult
+        from gateway.models import ChannelType, MessageType, NormalizedMessage
     except ImportError:
-        from ..models import NormalizedMessage, ChannelType, MessageType
+        from ..models import ChannelType, MessageType, NormalizedMessage
         from .base import ChannelAdapter, SendResult
 
 
@@ -44,8 +43,8 @@ class SlackAdapter(ChannelAdapter):
         self._client = None
         self._channels: list = config.get("channels", [])
         self._polling_interval: int = config.get("polling_interval", 5)
-        self._last_ts: Dict[str, str] = {}
-        self._user_cache: Dict[str, str] = {}
+        self._last_ts: dict[str, str] = {}
+        self._user_cache: dict[str, str] = {}
 
     async def connect(self) -> bool:
         """Slack 연결 (lib.slack 사용)"""
@@ -66,7 +65,14 @@ class SlackAdapter(ChannelAdapter):
                 self._connected = False
                 return False
 
-            print(f"[SlackAdapter] 연결 성공 ({len(self._channels)}개 채널)")
+            # 서버 시작 시점 이후 메시지만 처리 (기존 메시지 무시)
+            import time
+            start_ts = f"{time.time():.6f}"
+            for channel_id in self._channels:
+                if channel_id not in self._last_ts:
+                    self._last_ts[channel_id] = start_ts
+
+            print(f"[SlackAdapter] 연결 성공 ({len(self._channels)}개 채널, 시작 기준: {start_ts})")
             return True
 
         except Exception as e:
@@ -190,7 +196,7 @@ class SlackAdapter(ChannelAdapter):
 
         return normalized
 
-    async def _resolve_user(self, user_id: str) -> Optional[str]:
+    async def _resolve_user(self, user_id: str) -> str | None:
         """User ID → 이름 변환 (캐시 포함)"""
         if user_id in self._user_cache:
             return self._user_cache[user_id]

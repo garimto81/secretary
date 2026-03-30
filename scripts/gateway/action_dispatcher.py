@@ -10,11 +10,9 @@ Action Dispatcher - Gateway Pipeline에서 탐지된 액션을 실제 자동화 
 
 import asyncio
 import logging
-import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 # 3중 import fallback 패턴
 try:
@@ -47,9 +45,9 @@ class DispatchResult:
     """디스패치 결과"""
     action: str
     success: bool
-    output_path: Optional[Path] = None
-    calendar_dry_run: Optional[str] = None
-    error: Optional[str] = None
+    output_path: Path | None = None
+    calendar_dry_run: str | None = None
+    error: str | None = None
 
 
 class ActionDispatcher:
@@ -212,17 +210,7 @@ class ActionDispatcher:
         )
 
     def _create_todo_entry(self, message: NormalizedMessage, deadline_text: str = "", keyword: str = "") -> dict:
-        """
-        NormalizedMessage에서 TODO 호환 dict 생성
-
-        Args:
-            message: 원본 메시지
-            deadline_text: 마감일 텍스트 (deadline 액션에서만)
-            keyword: 액션 키워드 (action_request 액션에서만)
-
-        Returns:
-            todo_generator에 전달할 dict
-        """
+        """NormalizedMessage에서 TODO 호환 dict 생성"""
         # 우선순위 매핑
         if message.priority in (Priority.URGENT, Priority.HIGH):
             priority = "high"
@@ -237,18 +225,22 @@ class ActionDispatcher:
         # 발신자
         sender = message.sender_name or "Unknown"
 
+        # 프로젝트 태그
+        project_tag = f"[{message.project_id}]" if message.project_id else ""
+
         # 메시지 텍스트 (최대 50자)
         message_text = (message.text or "")[:50]
         if len(message.text or "") > 50:
             message_text += "..."
 
-        # 타이틀 생성
+        # 타이틀 생성 (프로젝트 태그 포함)
+        prefix = f"{project_tag}[{channel}]" if project_tag else f"[{channel}]"
         if deadline_text:
-            title = f"[{channel}] {sender}: {message_text} (마감: {deadline_text})"
+            title = f"{prefix} {sender}: {message_text} (마감: {deadline_text})"
         elif keyword:
-            title = f"[{channel}] {sender}: {message_text} ({keyword})"
+            title = f"{prefix} {sender}: {message_text} ({keyword})"
         else:
-            title = f"[{channel}] {sender}: {message_text}"
+            title = f"{prefix} {sender}: {message_text}"
 
         return {
             "type": "gateway",
@@ -256,6 +248,7 @@ class ActionDispatcher:
             "title": title,
             "sender": sender,
             "deadline": deadline_text if deadline_text else "",
+            "project_id": message.project_id,
         }
 
     def _is_parsable_date(self, deadline_text: str) -> bool:
@@ -329,7 +322,7 @@ class ActionDispatcher:
 
             return output.strip()
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return "Calendar dry-run timeout (10s)"
         except Exception as e:
             return f"Calendar dry-run error: {e}"

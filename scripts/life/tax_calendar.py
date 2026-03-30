@@ -22,7 +22,6 @@ from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 # Windows console UTF-8
 if sys.platform == "win32":
@@ -30,9 +29,9 @@ if sys.platform == "win32":
 
 # Google API imports
 try:
+    from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
 
@@ -65,8 +64,8 @@ class TaxEvent:
     name: str
     frequency: str  # monthly, quarterly, yearly
     day: int
-    month: Optional[int] = None  # yearly events
-    quarter_months: Optional[list[int]] = None  # quarterly events [1,4,7,10]
+    month: int | None = None  # yearly events
+    quarter_months: list[int] | None = None  # quarterly events [1,4,7,10]
     reminder_days: list[int] = field(default_factory=lambda: [7, 3, 1])
     calendar_color: str = "#FF6B6B"
     enabled: bool = True
@@ -103,7 +102,7 @@ class TaxCalendarManager:
     - Create Google Calendar events with reminders
     """
 
-    def __init__(self, config_path: Optional[Path] = None) -> None:
+    def __init__(self, config_path: Path | None = None) -> None:
         """
         Initialize manager
 

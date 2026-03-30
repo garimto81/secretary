@@ -7,8 +7,6 @@ SendLogger - 전송 이력 JSONL 로그
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
-
 
 DEFAULT_LOG_PATH = Path(r"C:\claude\secretary\data\send_log.jsonl")
 
@@ -16,7 +14,7 @@ DEFAULT_LOG_PATH = Path(r"C:\claude\secretary\data\send_log.jsonl")
 class SendLogger:
     """전송 이력 JSONL 로그"""
 
-    def __init__(self, log_path: Optional[Path] = None):
+    def __init__(self, log_path: Path | None = None):
         self.log_path = log_path or DEFAULT_LOG_PATH
 
     def log_send(
@@ -25,8 +23,8 @@ class SendLogger:
         channel: str,
         recipient: str,
         status: str,          # "sent" | "failed" | "draft_created"
-        message_id: Optional[str] = None,
-        error: Optional[str] = None,
+        message_id: str | None = None,
+        error: str | None = None,
     ) -> None:
         """전송 시도 기록 (동기, append)"""
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,7 +43,7 @@ class SendLogger:
         with open(self.log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    def get_recent(self, limit: int = 20) -> List[dict]:
+    def get_recent(self, limit: int = 20) -> list[dict]:
         """최근 전송 이력 조회 (역순)"""
         if not self.log_path.exists():
             return []

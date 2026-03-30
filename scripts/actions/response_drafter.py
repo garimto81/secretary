@@ -30,7 +30,6 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # Windows 콘솔 UTF-8 설정
 if sys.platform == "win32":
@@ -48,7 +47,7 @@ except ImportError:
     sys.exit(1)
 
 
-def get_claude_client() -> Optional[anthropic.Anthropic]:
+def get_claude_client() -> anthropic.Anthropic | None:
     """Claude API 클라이언트 생성"""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
 
@@ -63,8 +62,8 @@ def generate_response_draft(
     subject: str,
     sender: str,
     body: str,
-    context: Optional[str] = None,
-) -> Optional[str]:
+    context: str | None = None,
+) -> str | None:
     """
     Claude API로 응답 초안 생성
 
@@ -122,7 +121,7 @@ def save_draft(
     draft_content: str,
     subject: str,
     sender: str,
-    item_id: Optional[str] = None,
+    item_id: str | None = None,
 ) -> Path:
     """
     초안 파일 저장
@@ -195,7 +194,7 @@ def main():
     # JSON 입력 처리
     try:
         if args.input:
-            with open(args.input, "r", encoding="utf-8") as f:
+            with open(args.input, encoding="utf-8") as f:
                 data = json.load(f)
         elif args.json:
             data = json.load(sys.stdin)

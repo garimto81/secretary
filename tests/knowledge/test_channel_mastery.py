@@ -1,17 +1,16 @@
 """Channel Mastery 단위/통합 테스트"""
 
 import sys
-from pathlib import Path
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, patch, MagicMock
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
-import aiosqlite
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from scripts.knowledge.models import KnowledgeDocument, ChannelProfile
 from scripts.knowledge.channel_profile import ChannelProfileStore
+from scripts.knowledge.models import ChannelProfile, KnowledgeDocument
 from scripts.knowledge.store import KnowledgeStore
 
 pytestmark = pytest.mark.asyncio
@@ -405,7 +404,9 @@ class TestHandlerMasteryInjection:
             mastery_analyzer=mock_mastery,
         )
 
-        context = await handler._build_context("secretary", query_text="gateway")
+        result = await handler._build_context("secretary", query_text="gateway")
+        # _build_context가 tuple을 반환하는 경우 처리
+        context = result[0] if isinstance(result, tuple) else result
 
         assert "채널 전문가 컨텍스트" in context
         assert "gateway" in context
@@ -426,5 +427,6 @@ class TestHandlerMasteryInjection:
             registry=mock_registry,
         )
 
-        context = await handler._build_context("secretary")
+        result = await handler._build_context("secretary")
+        context = result[0] if isinstance(result, tuple) else result
         assert "채널 전문가 컨텍스트" not in context

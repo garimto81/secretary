@@ -1,40 +1,33 @@
 ---
 name: parallel
-description: Multi-agent parallel execution (dev, test, review, research)
+description: >
+  Multi-agent parallel execution for dev, test, review, and research tasks. Triggers on "parallel", "병렬", "동시 실행". Use when facing 2+ independent tasks that can run concurrently across multiple agents.
 version: 2.0.0
-omc_delegate: oh-my-claudecode:ultrawork
-omc_agents:
-  - executor
-  - executor-high
-  - qa-tester
-  - architect
 triggers:
   keywords:
     - "parallel"
     - "병렬"
-    - "ulw"
-    - "ultrawork"
+auto_trigger: false
 ---
 
 # /parallel - 병렬 멀티에이전트 실행
 
-## OMC Integration
+## 실행 방법
 
-이 스킬은 OMC `ultrawork` 스킬에 위임합니다.
-
-### 실행 방법
-
-```python
-Skill(skill="oh-my-claudecode:ultrawork", args="작업 설명")
-
-# 또는 직접 에이전트 호출 (병렬)
-Task(subagent_type="oh-my-claudecode:executor", model="sonnet",
-     prompt="작업 1", run_in_background=True)
-Task(subagent_type="oh-my-claudecode:executor", model="sonnet",
-     prompt="작업 2", run_in_background=True)
+```
+TeamCreate(team_name="parallel-session")
+Agent(subagent_type="executor", name="worker-1",
+     description="병렬 작업 1 실행",
+     team_name="parallel-session", prompt="작업 1")
+Agent(subagent_type="executor", name="worker-2",
+     description="병렬 작업 2 실행",
+     team_name="parallel-session", prompt="작업 2")
+SendMessage(type="message", recipient="worker-1", content="Task 할당.")
+SendMessage(type="message", recipient="worker-2", content="Task 할당.")
+# 완료 대기 → shutdown_request → TeamDelete()
 ```
 
-### OMC 에이전트
+### 에이전트
 
 | 에이전트 | 모델 | 용도 |
 |----------|------|------|

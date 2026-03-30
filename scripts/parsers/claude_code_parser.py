@@ -7,10 +7,10 @@ Parses Claude Code session logs from ~/.claude/projects/{hash}/*.jsonl
 
 import json
 import re
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 
 @dataclass
@@ -37,7 +37,7 @@ class ClaudeCodeParser:
 
     def find_session_files(self, days: int = 7) -> list[Path]:
         """최근 N일 세션 파일 찾기"""
-        cutoff_time = datetime.now(timezone.utc).timestamp() - (days * 24 * 3600)
+        cutoff_time = datetime.now(UTC).timestamp() - (days * 24 * 3600)
         session_files = []
 
         if not self.projects_dir.exists():
@@ -57,7 +57,7 @@ class ClaudeCodeParser:
     def parse_session_file(self, file_path: Path) -> LLMSession | None:
         """단일 JSONL 파일 파싱"""
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 lines = f.readlines()
 
             if not lines:

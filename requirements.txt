@@ -23,5 +23,5 @@ korean-lunar-calendar>=0.3.1  # Lunar/Solar calendar conversion
 # Gateway Storage (Phase 4)
 aiosqlite>=0.19.0  # Async SQLite for message storage
 
-# Telegram Bot (Phase 4.2)
-python-telegram-bot>=21.0  # Telegram Bot API adapter
+# Web Search (Intelligence)
+ddgs>=6.0.0  # DuckDuckGo search (duckduckgo_search renamed to ddgs)

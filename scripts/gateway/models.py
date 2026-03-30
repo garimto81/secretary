@@ -7,18 +7,13 @@ Gateway 데이터 모델 - Phase 4
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List, Dict, Any
 
 
 class ChannelType(Enum):
     """메시징 채널 종류"""
     EMAIL = "email"
-    TELEGRAM = "telegram"
-    WHATSAPP = "whatsapp"
-    DISCORD = "discord"
     SLACK = "slack"
-    KAKAO = "kakao"
-    SMS = "sms"
+    GITHUB = "github"
     UNKNOWN = "unknown"
 
 
@@ -72,17 +67,19 @@ class NormalizedMessage:
     channel: ChannelType
     channel_id: str
     sender_id: str
-    sender_name: Optional[str] = None
+    sender_name: str | None = None
     text: str = ""
     message_type: MessageType = MessageType.TEXT
     timestamp: datetime = field(default_factory=datetime.now)
     is_group: bool = False
     is_mention: bool = False
-    reply_to_id: Optional[str] = None
-    media_urls: List[str] = field(default_factory=list)
-    raw_json: Optional[str] = None
-    priority: Optional[Priority] = None
+    reply_to_id: str | None = None
+    media_urls: list[str] = field(default_factory=list)
+    raw_json: str | None = None
+    priority: Priority | None = None
     has_action: bool = False
+    project_id: str | None = None
+    thread_id: str | None = None  # Gmail thread_id 전용 (BOT-K04)
 
     def __post_init__(self):
         """유효성 검사 및 타입 변환"""
@@ -116,6 +113,8 @@ class NormalizedMessage:
             "raw_json": self.raw_json,
             "priority": self.priority.value if self.priority else None,
             "has_action": self.has_action,
+            "project_id": self.project_id,
+            "thread_id": self.thread_id,
         }
 
 
@@ -136,11 +135,11 @@ class OutboundMessage:
     channel: ChannelType
     to: str
     text: str
-    subject: Optional[str] = None
-    draft_file: Optional[str] = None
+    subject: str | None = None
+    draft_file: str | None = None
     confirmed: bool = False
-    sent_at: Optional[datetime] = None
-    reply_to: Optional[str] = None
+    sent_at: datetime | None = None
+    reply_to: str | None = None
 
     def __post_init__(self):
         """유효성 검사 및 타입 변환"""
@@ -169,3 +168,39 @@ class OutboundMessage:
         """전송 완료 표시"""
         self.confirmed = True
         self.sent_at = datetime.now()
+
+
+@dataclass
+class EnrichedMessage:
+    """
+    파이프라인 처리 결과를 담는 래퍼 - 원본 메시지 불변 보장
+
+    Pipeline의 Stage 1-2에서 분석한 priority, actions 등을
+    원본 NormalizedMessage를 변경하지 않고 별도로 기록합니다.
+
+    Attributes:
+        original: 불변 원본 메시지
+        priority: 분석된 우선순위
+        has_action: 액션 필요 여부
+        actions: 감지된 액션 목록
+    """
+    original: NormalizedMessage
+    project_id: str | None = None
+    priority: Priority | None = None
+    has_action: bool = False
+    actions: list[str] = field(default_factory=list)
+
+    @property
+    def message(self) -> NormalizedMessage:
+        """원본 메시지 접근 (하위호환용)"""
+        return self.original
+
+    def to_dict(self) -> dict:
+        """딕셔너리 직렬화"""
+        return {
+            "original": self.original.to_dict(),
+            "project_id": self.project_id,
+            "priority": self.priority.value if self.priority else None,
+            "has_action": self.has_action,
+            "actions": self.actions,
+        }

@@ -4,20 +4,20 @@ MessagePipeline - 메시지 처리 파이프라인
 메시지 분석 및 액션 디스패치를 담당합니다.
 
 Stages:
-1. Priority Analysis (긴급 키워드 감지)
-2. Action Detection (할일, 마감일 감지)
-3. Storage (DB 저장)
-4. Notification (Toast 알림)
-5. Action Dispatch (TODO 생성 등)
+0.5. Project Context Resolution (프로젝트 해석)
+1. Priority Analysis (긴급 키워드 감지, 프로젝트별)
+2. Action Detection (할일, 마감일 감지, 프로젝트별)
+3. Storage (DB 저장, project_id 포함)
+4. Action Dispatch (TODO 생성 등)
 """
 
 import re
 import sys
-import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional, Dict, Any, Awaitable
+from typing import Any
 
 # 스크립트 직접 실행 시 경로 추가
 if __name__ == "__main__":
@@ -28,14 +28,17 @@ if __name__ == "__main__":
 
 # 상대/절대 import 모두 지원
 try:
-    from scripts.gateway.models import NormalizedMessage, Priority
+    from scripts.gateway.models import EnrichedMessage, NormalizedMessage, Priority
+    from scripts.gateway.project_context import ProjectContext, ProjectContextResolver
     from scripts.gateway.storage import UnifiedStorage
 except ImportError:
     try:
-        from gateway.models import NormalizedMessage, Priority
+        from gateway.models import EnrichedMessage, NormalizedMessage, Priority
+        from gateway.project_context import ProjectContext, ProjectContextResolver
         from gateway.storage import UnifiedStorage
     except ImportError:
-        from .models import NormalizedMessage, Priority
+        from .models import EnrichedMessage, NormalizedMessage, Priority
+        from .project_context import ProjectContext, ProjectContextResolver
         from .storage import UnifiedStorage
 
 
@@ -50,7 +53,6 @@ DEFAULT_CONFIG = {
         r"내일\s*(까지|중)",  # 내일까지, 내일 중
         r"이번\s*주\s*(내|까지)",  # 이번 주 내
     ],
-    "toast_enabled": True,
     "rate_limit_per_minute": 10,
 }
 
@@ -59,16 +61,18 @@ DEFAULT_CONFIG = {
 class PipelineResult:
     """파이프라인 처리 결과"""
     message_id: str
-    priority: Optional[str] = None
+    project_id: str | None = None
+    priority: str | None = None
     has_action: bool = False
-    actions: List[str] = field(default_factory=list)
-    error: Optional[str] = None
-    processed_at: Optional[datetime] = None
+    actions: list[str] = field(default_factory=list)
+    error: str | None = None
+    processed_at: datetime | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """딕셔너리로 변환"""
         return {
             "message_id": self.message_id,
+            "project_id": self.project_id,
             "priority": self.priority,
             "has_action": self.has_action,
             "actions": self.actions,
@@ -77,8 +81,8 @@ class PipelineResult:
         }
 
 
-# Handler 타입 정의
-PipelineHandler = Callable[[NormalizedMessage, 'PipelineResult'], Awaitable[None]]
+# Handler 타입 정의 (EnrichedMessage + PipelineResult)
+PipelineHandler = Callable[['EnrichedMessage', 'PipelineResult'], Awaitable[None]]
 
 
 class MessagePipeline:
@@ -89,8 +93,7 @@ class MessagePipeline:
     1. Priority Analysis (긴급 키워드 감지)
     2. Action Detection (할일, 마감일 감지)
     3. Storage (DB 저장)
-    4. Notification (Toast 알림)
-    5. Action Dispatch (TODO 생성 등)
+    4. Action Dispatch (TODO 생성 등)
 
     Example:
         async with UnifiedStorage() as storage:
@@ -98,18 +101,20 @@ class MessagePipeline:
             result = await pipeline.process(message)
     """
 
-    def __init__(self, storage: UnifiedStorage, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, storage: UnifiedStorage, config: dict[str, Any] | None = None,
+                 project_resolver: ProjectContextResolver | None = None):
         """
         파이프라인 초기화
 
         Args:
             storage: 통합 스토리지 인스턴스
             config: 설정 딕셔너리 (None이면 기본값 사용)
+            project_resolver: 프로젝트 컨텍스트 해석기 (None이면 자동 생성)
         """
         self.storage = storage
         self.config = {**DEFAULT_CONFIG, **(config or {})}
-        self.handlers: List[PipelineHandler] = []
-        self._rate_limit_times: List[datetime] = []
+        self.handlers: list[PipelineHandler] = []
+        self._project_resolver = project_resolver or ProjectContextResolver()
 
         # 정규식 컴파일
         self._deadline_patterns = [
@@ -172,42 +177,49 @@ class MessagePipeline:
         """
         메시지 처리
 
+        원본 NormalizedMessage를 변경하지 않고,
+        EnrichedMessage에 분석 결과를 기록합니다.
+
         Args:
-            message: 처리할 메시지
+            message: 처리할 메시지 (불변)
 
         Returns:
             처리 결과
         """
         result = PipelineResult(message_id=message.id)
+        enriched = EnrichedMessage(original=message)
 
         try:
-            # Stage 1: Priority Analysis
-            priority = self._analyze_priority(message)
+            # Stage 0.5: Project Context Resolution
+            project_id = message.project_id or self._project_resolver.resolve(message)
+            project_ctx = self._project_resolver.get_context(project_id) if project_id else None
+            result.project_id = project_id
+            enriched.project_id = project_id
+
+            # Stage 1: Priority Analysis → EnrichedMessage에 기록 (프로젝트별 키워드 확장)
+            priority = self._analyze_priority(message, project_ctx)
             if priority:
                 result.priority = priority
-                message.priority = Priority(priority)
+                enriched.priority = Priority(priority)
 
-            # Stage 2: Action Detection
-            actions = self._detect_actions(message)
+            # Stage 2: Action Detection → EnrichedMessage에 기록 (프로젝트별 키워드 확장)
+            actions = self._detect_actions(message, project_ctx)
             if actions:
                 result.has_action = True
                 result.actions = actions
-                message.has_action = True
+                enriched.has_action = True
+                enriched.actions = actions
 
-            # Stage 3: Storage (DB 저장)
-            await self._save_to_storage(message)
+            # Stage 3: Storage (원본 메시지 저장, project_id 포함)
+            await self._save_to_storage(message, project_id)
 
-            # Stage 4: Notification (Toast 알림)
-            if result.priority == "urgent" or result.priority == "high":
-                await self._send_notification(message, result)
-
-            # Stage 5: Action Dispatch (TODO 생성 등)
+            # Stage 4: Action Dispatch (TODO 생성 등)
             if result.has_action:
                 await self._dispatch_actions(message, result)
 
-            # Stage 6: Custom Handlers
+            # Stage 6: Custom Handlers (EnrichedMessage 전달)
             for handler in self.handlers:
-                await handler(message, result)
+                await handler(enriched, result)
 
             result.processed_at = datetime.now()
 
@@ -216,26 +228,26 @@ class MessagePipeline:
 
         return result
 
-    def _analyze_priority(self, message: NormalizedMessage) -> Optional[str]:
-        """
-        우선순위 분석
-
-        Args:
-            message: 분석할 메시지
-
-        Returns:
-            우선순위 문자열 ('urgent', 'high', 'normal') 또는 None
-        """
+    def _analyze_priority(self, message: NormalizedMessage,
+                          project_ctx: ProjectContext | None = None) -> str | None:
+        """우선순위 분석 (프로젝트별 긴급 키워드 확장)"""
         text = message.text or ""
 
         # 부정 컨텍스트 체크 (먼저 실행)
         has_deny = any(p.search(text) for p in self._urgent_deny_patterns)
 
-        # 긴급 키워드 체크 (단어 경계 정규식)
+        # 긴급 키워드 체크 (단어 경계 정규식 - 기본 키워드)
         if not has_deny:
             for pattern in self._urgent_patterns:
                 if pattern.search(text):
                     return "urgent"
+
+            # 프로젝트별 긴급 키워드 체크
+            if project_ctx and project_ctx.urgent_keywords:
+                text_lower = text.lower()
+                for kw in project_ctx.urgent_keywords:
+                    if kw.lower() in text_lower:
+                        return "urgent"
 
         # 멘션인 경우 높은 우선순위
         if message.is_mention:
@@ -248,16 +260,9 @@ class MessagePipeline:
 
         return "normal"
 
-    def _detect_actions(self, message: NormalizedMessage) -> List[str]:
-        """
-        액션 감지
-
-        Args:
-            message: 분석할 메시지
-
-        Returns:
-            감지된 액션 목록
-        """
+    def _detect_actions(self, message: NormalizedMessage,
+                        project_ctx: ProjectContext | None = None) -> list[str]:
+        """액션 감지 (프로젝트별 액션 키워드 확장)"""
         text = message.text or ""
         text_lower = text.lower()
         actions = []
@@ -278,6 +283,12 @@ class MessagePipeline:
             if match:
                 actions.append(f"deadline:{match.group(0)}")
 
+        # 프로젝트별 액션 키워드 체크
+        if project_ctx and project_ctx.action_keywords:
+            for kw in project_ctx.action_keywords:
+                if kw.lower() in text_lower:
+                    actions.append(f"action_request:{kw}")
+
         # 질문 패턴 감지 (URL, 코드블록 제외)
         text_clean = self._url_pattern.sub('', text)
         text_clean = self._code_block_pattern.sub('', text_clean)
@@ -286,62 +297,10 @@ class MessagePipeline:
 
         return actions
 
-    async def _save_to_storage(self, message: NormalizedMessage) -> None:
-        """
-        스토리지에 메시지 저장
-
-        Args:
-            message: 저장할 메시지 (models.NormalizedMessage)
-
-        Note:
-            storage.py가 models.NormalizedMessage를 직접 지원하므로 변환이 필요 없음.
-        """
-        await self.storage.save_message(message)
-
-    async def _send_notification(self, message: NormalizedMessage, result: PipelineResult) -> None:
-        """
-        Toast 알림 전송
-
-        Args:
-            message: 알림 대상 메시지
-            result: 파이프라인 결과
-        """
-        if not self.config.get("toast_enabled", True):
-            return
-
-        # Rate limiting 체크
-        if not self._check_rate_limit():
-            return
-
-        try:
-            # toast_notifier를 subprocess로 실행
-            sender = message.sender_name or message.sender_id
-            title = f"[{message.channel.value.upper()}] {sender}"
-            body = message.text[:100] if message.text else ""
-
-            if result.priority == "urgent":
-                title = f"[긴급] {title}"
-
-            # Windows에서 toast 전송
-            if sys.platform == "win32":
-                try:
-                    from winotify import Notification, audio
-
-                    toast = Notification(
-                        app_id="Secretary AI",
-                        title=title,
-                        msg=body,
-                        duration="short",
-                    )
-                    toast.set_audio(audio.Default, loop=False)
-                    toast.show()
-                except ImportError:
-                    # winotify 미설치 시 무시
-                    pass
-
-        except Exception:
-            # 알림 실패는 무시
-            pass
+    async def _save_to_storage(self, message: NormalizedMessage,
+                               project_id: str | None = None) -> None:
+        """스토리지에 메시지 저장 (project_id 포함)"""
+        await self.storage.save_message(message, project_id=project_id)
 
     async def _dispatch_actions(self, message: NormalizedMessage, result: PipelineResult) -> None:
         """
@@ -362,29 +321,7 @@ class MessagePipeline:
             # dispatch 실패는 pipeline을 중단하지 않음
             print(f"[Pipeline] Dispatch error: {e}")
 
-    def _check_rate_limit(self) -> bool:
-        """
-        Rate limit 체크
-
-        Returns:
-            전송 가능 여부
-        """
-        now = datetime.now()
-        limit = self.config.get("rate_limit_per_minute", 10)
-
-        # 1분 이내 기록만 유지
-        self._rate_limit_times = [
-            t for t in self._rate_limit_times
-            if (now - t).total_seconds() < 60
-        ]
-
-        if len(self._rate_limit_times) >= limit:
-            return False
-
-        self._rate_limit_times.append(now)
-        return True
-
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         파이프라인 통계 조회
 
@@ -393,7 +330,5 @@ class MessagePipeline:
         """
         return {
             "handlers_count": len(self.handlers),
-            "rate_limit_current": len(self._rate_limit_times),
             "rate_limit_max": self.config.get("rate_limit_per_minute", 10),
-            "toast_enabled": self.config.get("toast_enabled", True),
         }

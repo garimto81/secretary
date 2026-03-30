@@ -10,18 +10,19 @@ Gateway 모듈
 - Gateway 서버
 """
 
-from .storage import UnifiedStorage
+from .adapters import AdapterConfig, ChannelAdapter, SendResult
 from .models import (
     ChannelType,
-    MessageType,
-    Priority,
+    EnrichedMessage,
     MessagePriority,
+    MessageType,
     NormalizedMessage,
     OutboundMessage,
+    Priority,
 )
-from .adapters import ChannelAdapter, SendResult, AdapterConfig
 from .pipeline import MessagePipeline, PipelineResult
 from .server import SecretaryGateway, load_config
+from .storage import UnifiedStorage
 
 __all__ = [
     # Storage
@@ -33,6 +34,7 @@ __all__ = [
     "MessagePriority",
     "NormalizedMessage",
     "OutboundMessage",
+    "EnrichedMessage",
     # Adapters
     "ChannelAdapter",
     "SendResult",
