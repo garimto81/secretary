@@ -1,9 +1,10 @@
-"""매일 아침 9시 자동 실행 — /daily 파이프라인
+"""매일 아침 9시 자동 실행 — /daily + /audit 파이프라인
 
 Windows Task Scheduler에서 호출되어:
 1. 어제 날짜 기준 커밋 수집
 2. summary --json 데이터 준비
 3. Claude Code CLI 호출로 3시제 분석 + Slack 전송
+4. /audit 설정 점검 + Slack 보고
 """
 
 import json
@@ -15,10 +16,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 SECRETARY_DIR = Path(r"C:\claude\secretary")
+CLAUDE_ROOT = Path(r"C:\claude")
 LOG_DIR = SECRETARY_DIR / "logs"
 LOG_FILE = LOG_DIR / "morning_briefing.log"
 SLACK_TOKEN_FILE = Path(r"C:\claude\json\slack_token.json")
 HOLIDAYS_FILE = SECRETARY_DIR / "config" / "holidays.json"
+AUDIT_DIR = CLAUDE_ROOT / "docs" / "audit"
 
 # 절대 경로 — PATH 의존 제거
 PYTHON_PATH = r"C:\Users\AidenKim\AppData\Local\Programs\Python\Python312\python.exe"
@@ -64,8 +67,8 @@ def setup_logger() -> logging.Logger:
     return logger
 
 
-def send_slack_error(message: str) -> None:
-    """파이프라인 실패 시 #claude-auto 채널에 에러 알림 전송."""
+def send_slack_message(channel: str, text: str) -> None:
+    """Slack 채널에 메시지 전송."""
     try:
         with open(SLACK_TOKEN_FILE, encoding="utf-8") as f:
             token_data = json.load(f)
@@ -74,10 +77,7 @@ def send_slack_error(message: str) -> None:
         print(f"[morning] Slack 토큰 읽기 실패: {e}", file=sys.stderr)
         return
 
-    payload = json.dumps({
-        "channel": "#claude-auto",
-        "text": f":x: *morning_briefing 실패*\n```{message}```",
-    }).encode("utf-8")
+    payload = json.dumps({"channel": channel, "text": text}).encode("utf-8")
 
     req = urllib.request.Request(
         "https://slack.com/api/chat.postMessage",
@@ -94,6 +94,82 @@ def send_slack_error(message: str) -> None:
                 print(f"[morning] Slack API 오류: {result.get('error')}", file=sys.stderr)
     except Exception as e:
         print(f"[morning] Slack 전송 실패: {e}", file=sys.stderr)
+
+
+def send_slack_error(message: str) -> None:
+    """파이프라인 실패 시 #claude-auto 채널에 에러 알림 전송."""
+    send_slack_message("#claude-auto", f":x: *morning_briefing 실패*\n```{message}```")
+
+
+def extract_audit_summary(report_path: Path) -> str:
+    """audit 보고서에서 '## 요약' 섹션을 추출. 최대 1500자."""
+    try:
+        content = report_path.read_text(encoding="utf-8")
+    except Exception:
+        return "(보고서 읽기 실패)"
+
+    # '## 요약' ~ 다음 '---' 또는 '## ' 까지 추출
+    start = content.find("## 요약")
+    if start == -1:
+        # 요약 섹션 없으면 첫 1500자
+        return content[:1500]
+
+    end = content.find("\n---", start + 6)
+    if end == -1:
+        end = content.find("\n## ", start + 6)
+    if end == -1:
+        end = start + 1500
+
+    summary = content[start:end].strip()
+    return summary[:1500]
+
+
+def run_audit(logger: logging.Logger, today: str) -> None:
+    """설정 점검 (/audit) 실행 + Slack 보고."""
+    logger.info("Invoking Claude Code for /audit...")
+    try:
+        audit_result = subprocess.run(
+            [CLAUDE_PATH, "-p", "/audit"],
+            cwd=CLAUDE_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("Audit timed out (600s)")
+        send_slack_message(
+            "#claude-auto",
+            f":warning: *Daily Audit ({today})* — 타임아웃 (10분 초과)",
+        )
+        return
+    except Exception as exc:
+        logger.error(f"Audit failed: {exc}")
+        send_slack_message(
+            "#claude-auto",
+            f":x: *Daily Audit ({today})* — 실행 실패\n```{exc}```",
+        )
+        return
+
+    if audit_result.stdout:
+        logger.info(audit_result.stdout.rstrip())
+    if audit_result.stderr:
+        logger.error(audit_result.stderr.rstrip())
+
+    # 결과 요약 추출
+    audit_report = AUDIT_DIR / f"daily-{today}.md"
+    if audit_report.exists():
+        summary = extract_audit_summary(audit_report)
+    else:
+        summary = audit_result.stdout[:1500] if audit_result.stdout else "(출력 없음)"
+
+    status = ":white_check_mark:" if audit_result.returncode == 0 else ":warning:"
+    send_slack_message(
+        "#claude-auto",
+        f"{status} *Daily Audit ({today})*\n```{summary}```",
+    )
+    logger.info(f"Audit completed — {today} (exit={audit_result.returncode})")
 
 
 def run_cmd(args: list[str], logger: logging.Logger, check: bool = True) -> subprocess.CompletedProcess:
@@ -130,32 +206,36 @@ def main():
     today = now.strftime("%Y-%m-%d")
     logger.info(f"Morning briefing started — collect date: {yesterday}")
 
-    # Step 1: 어제 커밋 수집
-    run_cmd([*WORK_TRACKER, "collect", "--date", yesterday], logger)
+    # Step 1-3: /daily 파이프라인 (실패해도 Step 4 진행)
+    try:
+        run_cmd([*WORK_TRACKER, "collect", "--date", yesterday], logger)
+        run_cmd([*WORK_TRACKER, "summary", "--json", "--date", today], logger, check=False)
 
-    # Step 2: 데이터 준비 (summary)
-    run_cmd([*WORK_TRACKER, "summary", "--json", "--date", today], logger, check=False)
+        logger.info("Invoking Claude Code for 3시제 analysis...")
+        claude_result = subprocess.run(
+            [CLAUDE_PATH, "-p", "/daily"],
+            cwd=SECRETARY_DIR,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+        )
+        if claude_result.stdout:
+            logger.info(claude_result.stdout.rstrip())
+        if claude_result.stderr:
+            logger.error(claude_result.stderr.rstrip())
 
-    # Step 3: Claude Code CLI로 /daily 실행
-    logger.info("Invoking Claude Code for 3시제 analysis...")
-    claude_result = subprocess.run(
-        [CLAUDE_PATH, "-p", "/daily"],
-        cwd=SECRETARY_DIR,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=600,
-    )
-    if claude_result.stdout:
-        logger.info(claude_result.stdout.rstrip())
-    if claude_result.stderr:
-        logger.error(claude_result.stderr.rstrip())
+        if claude_result.returncode == 0:
+            logger.info(f"Briefing completed successfully — {today}")
+        else:
+            logger.error(f"Claude Code /daily exited with code {claude_result.returncode}")
+    except Exception as exc:
+        logger.error(f"/daily pipeline failed: {exc}")
+        send_slack_error(str(exc))
 
-    if claude_result.returncode == 0:
-        logger.info(f"Briefing completed successfully — {today}")
-    else:
-        raise RuntimeError(f"Claude Code exited with code {claude_result.returncode}")
+    # Step 4: /audit 설정 점검 + Slack 보고 (/daily 실패와 무관하게 실행)
+    run_audit(logger, today)
 
 
 if __name__ == "__main__":
