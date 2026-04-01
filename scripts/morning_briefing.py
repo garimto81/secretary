@@ -1,14 +1,16 @@
-"""매일 아침 9시 자동 실행 — /daily + /audit 파이프라인
+"""매일 아침 9시 자동 실행 — /daily + /audit + auto-remediation 파이프라인
 
 Windows Task Scheduler에서 호출되어:
 1. 어제 날짜 기준 커밋 수집
 2. summary --json 데이터 준비
 3. Claude Code CLI 호출로 3시제 분석 + Slack 전송
-4. /audit 설정 점검 + Slack 보고
+4. /audit --auto-implement 설정 점검 + 자동 개선 + Slack 보고
+5. 브리핑 '앞으로 대비' 항목 자동 해결 (이슈 트리아지, 스냅샷 갱신)
 """
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import urllib.request
@@ -28,6 +30,9 @@ PYTHON_PATH = r"C:\Users\AidenKim\AppData\Local\Programs\Python\Python312\python
 CLAUDE_PATH = r"C:\Users\AidenKim\.local\bin\claude.exe"
 
 WORK_TRACKER = [PYTHON_PATH, "-m", "scripts.work_tracker"]
+
+# UTF-8 강제 — Windows cp949 이모지 깨짐 방지
+_UTF8_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
 
 
 def is_holiday(today: datetime) -> bool:
@@ -129,19 +134,20 @@ def run_audit(logger: logging.Logger, today: str) -> None:
     logger.info("Invoking Claude Code for /audit...")
     try:
         audit_result = subprocess.run(
-            [CLAUDE_PATH, "-p", "/audit"],
+            [CLAUDE_PATH, "-p", "/audit --auto-implement"],
             cwd=CLAUDE_ROOT,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=600,
+            env=_UTF8_ENV,
+            timeout=3600,
         )
     except subprocess.TimeoutExpired:
-        logger.error("Audit timed out (600s)")
+        logger.error("Audit timed out (3600s)")
         send_slack_message(
             "#claude-auto",
-            f":warning: *Daily Audit ({today})* — 타임아웃 (10분 초과)",
+            f":warning: *Daily Audit ({today})* — 타임아웃 (60분 초과)",
         )
         return
     except Exception as exc:
@@ -172,6 +178,47 @@ def run_audit(logger: logging.Logger, today: str) -> None:
     logger.info(f"Audit completed — {today} (exit={audit_result.returncode})")
 
 
+def run_auto_remediation(logger: logging.Logger, today: str) -> None:
+    """Step 5: 브리핑 '앞으로 대비' 항목 자동 해결."""
+    logger.info("Step 5: Auto-remediation starting...")
+    try:
+        result = subprocess.run(
+            [CLAUDE_PATH, "-p",
+             "아래 작업을 자동으로 처리하세요. 각 항목 처리 후 Slack #claude-auto에 결과를 보고하세요:\n"
+             "1. GitHub 이슈 트리아지: 30일+ 방치된 이슈에 자동 코멘트 (진행 상황 확인 요청)\n"
+             "2. 60일+ 방치 이슈는 stale 라벨 추가\n"
+             "3. 스냅샷 갱신: work_tracker로 최신 스냅샷 생성\n"
+             "처리 결과를 간단히 요약하세요."],
+            cwd=CLAUDE_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=_UTF8_ENV,
+            timeout=1800,
+        )
+        if result.stdout:
+            logger.info(result.stdout[-2000:].rstrip())
+        if result.stderr:
+            logger.error(result.stderr[-1000:].rstrip())
+
+        status = ":white_check_mark:" if result.returncode == 0 else ":warning:"
+        summary = result.stdout[-1500:] if result.stdout else "(출력 없음)"
+        send_slack_message(
+            "#claude-auto",
+            f"{status} *Auto-Remediation ({today})*\n```{summary[:1500]}```",
+        )
+        logger.info(f"Auto-remediation completed — {today} (exit={result.returncode})")
+    except subprocess.TimeoutExpired:
+        logger.error("Auto-remediation timed out (1800s)")
+        send_slack_message(
+            "#claude-auto",
+            f":warning: *Auto-Remediation ({today})* — 타임아웃 (30분 초과)",
+        )
+    except Exception as exc:
+        logger.error(f"Auto-remediation failed: {exc}")
+
+
 def run_cmd(args: list[str], logger: logging.Logger, check: bool = True) -> subprocess.CompletedProcess:
     """커맨드 실행 + 로그 출력."""
     logger.info(f"Running: {' '.join(args)}")
@@ -182,6 +229,7 @@ def run_cmd(args: list[str], logger: logging.Logger, check: bool = True) -> subp
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=_UTF8_ENV,
         timeout=300,
     )
     if result.stdout:
@@ -219,6 +267,7 @@ def main():
             text=True,
             encoding="utf-8",
             errors="replace",
+            env=_UTF8_ENV,
             timeout=600,
         )
         if claude_result.stdout:
@@ -236,6 +285,9 @@ def main():
 
     # Step 4: /audit 설정 점검 + Slack 보고 (/daily 실패와 무관하게 실행)
     run_audit(logger, today)
+
+    # Step 5: 자동 해결 파이프라인 (/daily 및 /audit 실패와 무관하게 실행)
+    run_auto_remediation(logger, today)
 
 
 if __name__ == "__main__":
